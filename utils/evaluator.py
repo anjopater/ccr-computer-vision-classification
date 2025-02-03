@@ -83,7 +83,7 @@ def get_classifiers():
         # }
     }
 
-def train_and_evaluate(X_train, y_train, X_test, y_test, groups, model_name, n_components):
+def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_groups, model_name, n_components):
     classifiers = get_classifiers()
     results = {}
     classifier_preds = {}  # To store predictions for late fusion
@@ -91,10 +91,11 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, groups, model_name, n_c
     for name, clf_dict in classifiers.items():
         print(f"Training and tuning {name}...")
         grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=GroupKFold(n_splits=4), scoring='accuracy', n_jobs=-1)
-        #print(X_train, y_train,groups)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", ConvergenceWarning) 
-            grid.fit(X_train, y_train, groups=groups)
+        print(y_test)
+        print(test_groups)
+        print("Groups in Training:", train_groups)
+        print("Groups in Testing:", test_groups)
+        grid.fit(X_train, y_train, groups=train_groups)
         best_model = grid.best_estimator_
         print(f"{name} - Best Parameters: {grid.best_params_}")
 
@@ -103,9 +104,16 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, groups, model_name, n_c
         classifier_preds[name] = y_probs
 
         # Evaluate individual classifiers
-        y_pred = np.argmax(y_probs, axis=1)
+        y_pred = best_model.predict(X_test)   #np.argmax(y_probs, axis=1)
         accuracy = accuracy_score(y_test, y_pred)
         report = classification_report(y_test, y_pred, output_dict=True)
+
+        # 
+        train_pred = best_model.predict(X_train)
+        train_accuracy = accuracy_score(y_train, train_pred)
+        print("***TRAINING")
+        print(train_pred)
+        print(train_accuracy)
 
         # Validate
 
@@ -125,13 +133,19 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, groups, model_name, n_c
         # print("Validation Classification Report:")
         # print(val_report)
 
+        print("Training Predictions:", np.unique(train_pred, return_counts=True))
+        print("Test Predictions:", np.unique(y_pred, return_counts=True))
+        print("Actual Test Labels:", np.unique(y_test, return_counts=True))
+
         results[name] = {
-            "accuracy":  f"{accuracy:.4f}",
+            "train_accuracy": f"{train_accuracy:.4f}",  # Store training accuracy
+            "accuracy":  f"{accuracy:.4f}", # Test accuracy
             "report": report,
             "best_params": grid.best_params_,
             # "val_accuracy": val_accuracy,
             # "val_report": val_report
         }
+        print(f"{name} - Training Accuracy: {train_accuracy:.4f}")  # Add this
         print(f"{name} - Test Accuracy: {accuracy}")
         print(f"{name} - Classification Report:\n", report)
         # Generate and save confusion matrix

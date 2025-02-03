@@ -81,7 +81,7 @@ def apply_pca(train_features, test_features, n_components):
     pca = PCA(n_components=n_components, svd_solver='randomized', random_state=42)
     train_features_pca = pca.fit_transform(scale_train_features)
     test_features_pca = pca.transform(scale_test_features)
-
+    
     print("Components variance values")
     print(pca.explained_variance_ratio_)
 

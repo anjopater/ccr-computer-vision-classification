@@ -9,6 +9,8 @@ import os
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
 
 # Disable warnings
 warnings.filterwarnings("ignore")  # Disable all warnings
@@ -19,7 +21,7 @@ warnings.simplefilter("ignore", ConvergenceWarning)
 
 def main():
     results = {}
-    train_images, train_labels, train_groups, test_images, test_labels = load_data()
+    train_images, train_labels, train_groups, test_images, test_labels, test_groups = load_data()
     print(f"Number of training images: {len(train_images)}")
     print(f"Number of training labels: {len(train_labels)}")
     print(f"Number of test images: {len(test_images)}")
@@ -43,7 +45,7 @@ def main():
             print(f"Shape of train_features_pca: {train_features_pca.shape}")
             print(f"Shape of test_features_pca: {test_features_pca.shape}")
 
-            classifier_results = train_and_evaluate(train_features_pca, train_labels, test_features_pca, test_labels, train_groups, model_name, n_components)
+            classifier_results = train_and_evaluate(train_features_pca, train_labels, test_features_pca, test_labels, train_groups, test_groups, model_name, n_components)
             results[model_name][n_components] = classifier_results
 
             # Generate plots and save them

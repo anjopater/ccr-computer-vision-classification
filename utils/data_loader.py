@@ -105,7 +105,7 @@ def load_data():
     groups = np.array(c_groups + ccr_groups)
     labels = np.array([0] * len(c_image_paths) + [1] * len(ccr_image_paths))
 
-    # Split data using GroupShuffleSpli0.2
+    # Split data using GroupShuffleSpli 0.2
     gss = GroupShuffleSplit(test_size=0.2, train_size=0.8, n_splits=1, random_state=42)
     train_idx, test_idx = next(gss.split(image_paths, labels, groups=groups))
     train_images = [image_paths[i] for i in train_idx]
@@ -124,15 +124,27 @@ def load_data():
         raise ValueError("Overlap between training and test animals detected!")
     print("Data splited 80/20...")
 
-    logging.info(f"Train animals: {train_animals}")
-    logging.info(f"Test animals: {test_animals}")
+    # logging.info(f"Train animals: {train_groups}")
+    # logging.info(f"Test animals: {test_groups}")
     print("Train animals...")
     print(train_animals)
     print("Test animals...")
     print(test_animals)
-
+    print("Train groups...")
+    print(train_groups)
+    print("Test grouos...")
+    print(test_groups)
+    # print("Train images...")
+    # print(train_images)
+    # print("Test images...")
+    # print(test_images)
+    print("Test labels...")
+    print(test_labels)
+    print("Train labels...")
+    print(train_labels)
+    
 
     # print(train_images)
     # print(test_images)
 
-    return train_images, train_labels, train_groups, test_images, test_labels
+    return train_images, train_labels, train_groups, test_images, test_labels, test_groups
