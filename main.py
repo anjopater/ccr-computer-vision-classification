@@ -34,7 +34,7 @@ def main():
 
         print(f"Shape of train_features: {train_features.shape}")
         print(f"Shape of test_features: {test_features.shape}")
-        print(train_features) 
+        # print(train_features) 
 
         for n_components in PCA_COMPONENTS:
             print(f"Testing {model_name} with {n_components} PCA components...")
