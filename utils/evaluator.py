@@ -10,7 +10,9 @@ import xgboost as xgb
 import numpy as np
 import warnings
 from sklearn.exceptions import ConvergenceWarning
-from utils.save_plots import plot_and_save_confusion_matrix
+from utils.save_plots import plot_and_save_confusion_matrix, plot_custom_cv, plot_and_save_pca, plot_and_save_umap
+from sklearn.decomposition import PCA
+import umap
 
 from sklearn.preprocessing import StandardScaler
 import os
@@ -83,37 +85,215 @@ def get_classifiers():
         # }
     }
 
-def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_groups, model_name, n_components):
+# def cross_validation_with_pca(extracted_features, n_components):
+#     """
+#     Performs cross-validation using PCA and a classifier on the provided folds.
+    
+#     Parameters:
+#       extracted_features: list of tuples, where each tuple is (features, labels) for a fold.
+#                           Each fold has 300 images (10 classes × 30 images).
+#       n_components: number of PCA components.
+#     """
+#     from sklearn.decomposition import PCA
+#     from sklearn.svm import SVC
+#     import numpy as np
+#     print(extracted_features)
+#     n_folds = len(extracted_features)
+#     fold_accuracies = []
+#     pcas = []
+    
+#     # Leave-one-fold-out cross-validation:
+#     for test_fold_idx in range(n_folds):
+#         print(f"Processing fold {test_fold_idx + 1} as test fold...")
+        
+#         # Use the test_fold_idx as test, and combine the rest as training
+#         test_features, test_labels = extracted_features[test_fold_idx]
+#         train_features_list = []
+#         train_labels_list = []
+#         for i in range(n_folds):
+#             if i != test_fold_idx:
+#                 features, labels = extracted_features[i]
+#                 train_features_list.append(features)
+#                 train_labels_list.append(labels)
+                
+#         # Concatenate training features and labels from the other folds
+#         train_features = np.concatenate(train_features_list, axis=0)
+#         train_labels = np.concatenate(train_labels_list, axis=0)
+        
+#         # Fit PCA on the training set only
+#         pca = PCA(n_components=n_components)
+#         train_features_pca = pca.fit_transform(train_features)
+#         test_features_pca = pca.transform(test_features)
+#         pcas.append(train_features_pca)
+#         # Train a classifier on the PCA-transformed training data
+#         # classifier = SVC(kernel='linear', C=00.1, gamma="scale")
+#         # test_features_pca = pca.transform(test_features)
+
+        
+             
+#         classifier = LogisticRegression(max_iter=500, C=0.1, penalty="l2", solver="saga" )
+#         classifier.fit(train_features_pca, train_labels)
+#         # Evaluate the classifier on the PCA-transformed test data
+#         accuracy = classifier.score(test_features_pca, test_labels)
+#         print(f"Accuracy for fold {test_fold_idx + 1}: {accuracy * 100:.2f}%")
+#         fold_accuracies.append(accuracy)
+#     avg_accuracy = np.mean(fold_accuracies)
+#     print(f"Average cross-validation accuracy: {avg_accuracy * 100:.2f}%")
+#     plot_custom_cv(extracted_features)
+    
+
+
+def cross_validation_with_pca(extracted_features, n_components):
+    """
+    Performs cross-validation using PCA and UMAP for visualization and a classifier on the provided folds.
+    
+    Parameters:
+      extracted_features: list of tuples, where each tuple is (features, labels) for a fold.
+                          Each fold has 300 images (10 classes × 30 images).
+      n_components: number of components for UMAP and PCA.
+    """
+    n_folds = len(extracted_features)
+    fold_accuracies = []
+
+    all_true_labels = []  # Store all true labels
+    all_pred_labels = []  # Store all predicted labels
+    all_features = []     # Store all features for final UMAP plot
+    all_labels = []       # Store all labels for final UMAP plot
+
+    for test_fold_idx in range(n_folds):
+        print(f"Processing fold {test_fold_idx + 1} as test fold...")
+        
+        test_features, test_labels = extracted_features[test_fold_idx]
+        train_features_list, train_labels_list = [], []
+        
+        for i in range(n_folds):
+            if i != test_fold_idx:
+                features, labels = extracted_features[i]
+                train_features_list.append(features)
+                train_labels_list.append(labels)
+                
+        train_features = np.concatenate(train_features_list, axis=0)
+        train_labels = np.concatenate(train_labels_list, axis=0)
+        
+        # Apply PCA to the training set
+        pca = PCA(n_components=60)
+        train_features_pca = pca.fit_transform(train_features)
+        test_features_pca = pca.transform(test_features)
+
+        # Store for final PCA plot
+        all_features.append(train_features_pca)  # Store PCA-transformed training data
+        all_labels.append(train_labels)
+
+        # Train classifier
+        classifier = LogisticRegression(max_iter=500, C=0.1, penalty="l2", solver="saga")
+        classifier.fit(train_features_pca, train_labels)
+        
+        # Predict on test set
+        y_pred = classifier.predict(test_features_pca)
+        accuracy = classifier.score(test_features_pca, test_labels)
+        
+        print(f"Accuracy for fold {test_fold_idx + 1}: {accuracy * 100:.2f}%")
+        fold_accuracies.append(accuracy)
+
+        # Store for final confusion matrix
+        all_true_labels.extend(test_labels)
+        all_pred_labels.extend(y_pred)
+
+    # Compute average accuracy
+    avg_accuracy = np.mean(fold_accuracies)
+    print(f"Average cross-validation accuracy: {avg_accuracy * 100:.2f}%")
+
+    # Concatenate the PCA-transformed data from all folds into a 2D array
+    all_features_pca = np.concatenate(all_features, axis=0)  # Concatenate PCA features
+    all_labels = np.concatenate(all_labels, axis=0)  # Concatenate labels
+    
+    output_dir = os.path.join("results", "ResNet", f"pca_{n_components}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save PCA plot for the entire dataset
+    plot_and_save_pca(
+        all_features_pca, all_labels, 
+        title=f"PCA for n_components={3}", 
+        filename="full_pca_plot.png", 
+        output_dir=output_dir
+    )
+
+    # Apply UMAP for dimensionality reduction
+    umap_model = umap.UMAP(n_components=2)  # Set n_components to 2 for 2D visualization
+    all_features_umap = umap_model.fit_transform(all_features_pca)  # Apply UMAP to PCA features
+
+    output_dir = os.path.join("results", "ResNet", f"umap_{n_components}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Save UMAP plot for visualization
+    plot_and_save_umap(
+        features_umap= all_features_umap,
+        labels=all_labels, 
+        title=f"UMAP for n_components={2}",  # 2D UMAP for plotting
+        filename="full_umap_plot.png", 
+        output_dir=output_dir
+)
+
+    # Generate final confusion matrix
+    plot_and_save_confusion_matrix(
+        y_true=all_true_labels,
+        y_pred=all_pred_labels,
+        title="Final Confusion Matrix (All Folds)",
+        filename="final_confusion_matrix.png",
+        output_dir=output_dir
+    )
+
+    plot_custom_cv(extracted_features)
+
+
+def train_and_evaluate(X_train, y_train, X_test, y_test, model_name, n_components):
     classifiers = get_classifiers()
     results = {}
     classifier_preds = {}  # To store predictions for late fusion
+    
+    # Manually create 3 folds as per your dataset structure
+    folds = [
+        (list(range(0, 300)), list(range(300, 600)), list(range(600, 900))),
+        (list(range(300, 600)), list(range(600, 900)), list(range(0, 300))),
+        (list(range(600, 900)), list(range(0, 300)), list(range(300, 600)))
+    ]
 
-    for name, clf_dict in classifiers.items():
-        print(f"Training and tuning {name}...")
-        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=GroupKFold(n_splits=4), scoring='accuracy', n_jobs=-1)
-        print(y_test)
-        print(test_groups)
-        print("Groups in Training:", train_groups)
-        print("Groups in Testing:", test_groups)
-        grid.fit(X_train, y_train, groups=train_groups)
-        best_model = grid.best_estimator_
-        print(f"{name} - Best Parameters: {grid.best_params_}")
+    for fold_idx, (train_indices, val_indices, test_indices) in enumerate(folds):
+        print(f"Training and tuning for Fold {fold_idx + 1}...")
+        
+        # Prepare the training, validation, and test sets based on fold indices
+        X_train_fold, y_train_fold = X_train[train_indices], y_train[train_indices]
+        X_val_fold, y_val_fold = X_train[val_indices], y_train[val_indices]
+        X_test_fold, y_test_fold = X_test[test_indices], y_test[test_indices]
+        
+        # Train the classifiers with GridSearchCV (you can adjust this for each fold)
+        for name, clf_dict in classifiers.items():
+            print(f"Training and tuning {name}...")
 
-        # Collect predicted probabilities for fusion
-        y_probs = best_model.predict_proba(X_test)
-        classifier_preds[name] = y_probs
+            # Set up GridSearchCV with KFold
+            grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=3, scoring='accuracy', n_jobs=-1)
+            grid.fit(X_train_fold, y_train_fold)
+            
+            best_model = grid.best_estimator_
+            print(f"{name} - Best Parameters: {grid.best_params_}")
 
-        # Evaluate individual classifiers
-        y_pred = best_model.predict(X_test)   #np.argmax(y_probs, axis=1)
-        accuracy = accuracy_score(y_test, y_pred)
-        report = classification_report(y_test, y_pred, output_dict=True)
+            # Collect predicted probabilities for fusion
+            y_probs = best_model.predict_proba(X_test_fold)
+            classifier_preds[name] = y_probs
 
-        # 
-        train_pred = best_model.predict(X_train)
-        train_accuracy = accuracy_score(y_train, train_pred)
-        print("***TRAINING")
-        print(train_pred)
-        print(train_accuracy)
+            # Evaluate individual classifiers
+            y_pred = best_model.predict(X_test_fold)   # np.argmax(y_probs, axis=1)
+            accuracy = accuracy_score(y_test_fold, y_pred)
+            report = classification_report(y_test_fold, y_pred, output_dict=True)
+
+            print(f"Accuracy for fold {fold_idx + 1}, classifier {name}: {accuracy}")
+            print("Classification Report:\n", report)
+
+            # Optionally, collect training accuracy
+            train_pred = best_model.predict(X_train_fold)
+            train_accuracy = accuracy_score(y_train_fold, train_pred)
+            print("***TRAINING ACCURACY")
+            print(train_accuracy)
 
         # Validate
 
@@ -220,3 +400,6 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
     results["Fusion"] = fusion_results
 
     return results
+
+
+

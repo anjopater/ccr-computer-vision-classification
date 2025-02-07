@@ -28,10 +28,8 @@ def getPreprocess_input(model_name):
         return inception_preprocess
 
     
-def extract_cnn_features(image_paths, model_name):
-    print("EXTRATING FEATURES WITH MODEL")
-    print(model_name == "resnet50")
-
+def extract_cnn_features(folds, model_name):
+    print("EXTRACTING FEATURES WITH MODEL")
     if model_name == "efficientNetB0":
         base_model = EfficientNetB0(weights='imagenet', include_top=False, pooling='avg')
     elif model_name == "densenet121":
@@ -42,20 +40,35 @@ def extract_cnn_features(image_paths, model_name):
         base_model = InceptionV3(weights='imagenet', include_top=False, pooling='avg')
     else:
         raise ValueError(f"Unsupported model: {model_name}")
-    print(model_name)
-    features = []
-    for path in image_paths:
-        img = Image.open(path).convert("RGB")
-        print("IMAGES_SIZE_MODELS")
-        print(IMAGES_SIZE_MODELS[model_name])
-        img = img.resize((IMAGES_SIZE_MODELS[model_name],IMAGES_SIZE_MODELS[model_name]))  # Resize for ResNet
-        img_array = np.array(img)
-        preprocess = getPreprocess_input(model_name)
-        img_array = preprocess(img_array)
-        img_array = np.expand_dims(img_array, axis=0)
-        feature = base_model.predict(img_array)
-        features.append(feature.flatten())
-    return np.array(features)
+    print(f"Using {model_name} for feature extraction")
+    
+    extracted_features = []
+    
+    # Process each fold separately
+    for fold_idx, (fold_images, fold_labels) in enumerate(folds):
+        fold_features = []  # Will accumulate features for all images in this fold
+        for img_path in fold_images:
+            # Load the image
+            img = Image.open(img_path).convert("RGB")
+            img = img.resize((IMAGES_SIZE_MODELS[model_name], IMAGES_SIZE_MODELS[model_name]))  # Resize for the model
+            img_array = np.array(img)
+            preprocess = getPreprocess_input(model_name)
+            img_array = preprocess(img_array)
+            img_array = np.expand_dims(img_array, axis=0)
+            
+            # Extract features
+            feature = base_model.predict(img_array)
+            fold_features.append(feature.flatten())
+        
+        # Convert the list of feature vectors into a NumPy array of shape (300, feature_dim)
+        fold_features_array = np.array(fold_features)
+        # Ensure fold_labels is a NumPy array (it should have shape (300,))
+        fold_labels_array = np.array(fold_labels)
+        
+        # Append one tuple per fold
+        extracted_features.append((fold_features_array, fold_labels_array))
+    
+    return extracted_features
 
 def apply_pca(train_features, test_features, n_components):
     print("Applying PCA")
@@ -65,14 +78,14 @@ def apply_pca(train_features, test_features, n_components):
 
     # Remove zero-variance features from both train and test sets
     train_features = np.delete(train_features, zero_variance_features, axis=1)
-    test_features = np.delete(test_features, zero_variance_features, axis=1)
+    # test_features = np.delete(test_features, zero_variance_features, axis=1)
 
     print(f"Number of zero-variance features BEFORE scaling: {len(zero_variance_features)}")
 
     # Standardize features
     scaler = StandardScaler()
     scale_train_features = scaler.fit_transform(train_features)
-    scale_test_features = scaler.transform(test_features)
+    # scale_test_features = scaler.transform(test_features)
 
     print("Train mean:", np.mean(scale_train_features, axis=0)[:10])
     print("Train std:", np.std(scale_train_features, axis=0)[:10])
@@ -80,7 +93,7 @@ def apply_pca(train_features, test_features, n_components):
     # Apply PCA
     pca = PCA(n_components=n_components, svd_solver='randomized', random_state=42)
     train_features_pca = pca.fit_transform(scale_train_features)
-    test_features_pca = pca.transform(scale_test_features)
+    # test_features_pca = pca.transform(scale_test_features)
     
     print("Components variance values")
     print(pca.explained_variance_ratio_)
@@ -93,7 +106,7 @@ def apply_pca(train_features, test_features, n_components):
     n_components_90 = np.argmax(cumulative_variance >= 0.90) + 1
     print(f"Number of components for 90% variance: {n_components_90}")
 
-    return train_features_pca, test_features_pca, pca, scaler
+    return train_features_pca, pca, scaler
 
 def residual_block(x, filters, stride=1):
     # Save the original input for the residual connection
