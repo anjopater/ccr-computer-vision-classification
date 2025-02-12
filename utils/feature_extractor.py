@@ -8,9 +8,12 @@ from tensorflow.keras.applications.resnet50 import preprocess_input as resnet_pr
 from tensorflow.keras.applications.inception_v3 import preprocess_input as inception_preprocess
 from tensorflow.keras.applications.densenet import preprocess_input as densenet_preprocess
 from tensorflow.keras.applications.efficientnet import preprocess_input as efficientnet_preprocess
+from tensorflow.keras.applications.convnext import preprocess_input as convnext_preprocess
+
 from tensorflow.keras import layers, models
 import warnings
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.feature_selection import VarianceThreshold
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -26,7 +29,8 @@ def getPreprocess_input(model_name):
         return densenet_preprocess
     elif model_name == "inceptionv3":
         return inception_preprocess
-
+    elif model_name == "convNeXtTiny":
+        return convnext_preprocess
     
 def extract_cnn_features(image_paths, model_name):
     print("EXTRATING FEATURES WITH MODEL")
@@ -40,6 +44,8 @@ def extract_cnn_features(image_paths, model_name):
         base_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
     elif model_name == "inceptionv3":
         base_model = InceptionV3(weights='imagenet', include_top=False, pooling='avg')
+    elif model_name == "convNeXtTiny":
+        base_model = ConvNeXtTiny(weights='imagenet', include_top=False, pooling='avg')
     else:
         raise ValueError(f"Unsupported model: {model_name}")
     print(model_name)
@@ -60,16 +66,14 @@ def extract_cnn_features(image_paths, model_name):
 def apply_pca(train_features, test_features, n_components):
     print("Applying PCA")
 
-   # Identify zero-variance features only from the training set
-    zero_variance_features = np.where(np.std(train_features, axis=0) == 0)[0]
+    # Remove zero-variance features (fit only on train, transform both)
+    selector = VarianceThreshold(threshold=0.0)
+    train_features = selector.fit_transform(train_features)
+    test_features = selector.transform(test_features)
 
-    # Remove zero-variance features from both train and test sets
-    train_features = np.delete(train_features, zero_variance_features, axis=1)
-    test_features = np.delete(test_features, zero_variance_features, axis=1)
+    print(f"Number of zero-variance features removed: {train_features.shape[1] - test_features.shape[1]}")
 
-    print(f"Number of zero-variance features BEFORE scaling: {len(zero_variance_features)}")
-
-    # Standardize features
+    # Standardize features (fit only on train, transform both)
     scaler = StandardScaler()
     scale_train_features = scaler.fit_transform(train_features)
     scale_test_features = scaler.transform(test_features)
@@ -78,7 +82,7 @@ def apply_pca(train_features, test_features, n_components):
     print("Train std:", np.std(scale_train_features, axis=0)[:10])
 
     # Apply PCA
-    pca = PCA(n_components=n_components, svd_solver='randomized', random_state=42)
+    pca = PCA(n_components=n_components, svd_solver='auto', random_state=42)
     train_features_pca = pca.fit_transform(scale_train_features)
     test_features_pca = pca.transform(scale_test_features)
     

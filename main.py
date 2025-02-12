@@ -4,7 +4,7 @@ from utils.data_loader import load_data
 from utils.feature_extractor import extract_cnn_features, apply_pca
 from utils.evaluator import train_and_evaluate
 from utils.logger import save_results
-from utils.save_plots import plot_and_save_pca, plot_and_save_explained_variance, plot_and_save_correlation_heatmap, generate_plots_and_save_results
+from utils.save_plots import plot_and_save_pca, plot_and_save_explained_variance, plot_and_save_correlation_heatmap, generate_plots_and_save_results, plot_and_save_feature_histograms
 import os
 import warnings
 from sklearn.exceptions import ConvergenceWarning
@@ -41,6 +41,7 @@ def main():
             print(train_features.shape)
             print(test_features.shape)
             train_features_pca, test_features_pca, pca, scaler = apply_pca(train_features, test_features, n_components)
+            # plot_and_save_feature_histograms(train_features_pca, train_labels, ["Control", "Cancer"], output_dir="feature_histograms")
 
             print(f"Shape of train_features_pca: {train_features_pca.shape}")
             print(f"Shape of test_features_pca: {test_features_pca.shape}")

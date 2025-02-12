@@ -10,7 +10,7 @@ import xgboost as xgb
 import numpy as np
 import warnings
 from sklearn.exceptions import ConvergenceWarning
-from utils.save_plots import plot_and_save_confusion_matrix
+from utils.save_plots import plot_and_save_confusion_matrix, plot_cv_indices
 
 from sklearn.preprocessing import StandardScaler
 import os
@@ -29,7 +29,7 @@ def get_classifiers():
             'model': SVC(probability=True),
             'params': {
                 'C': [0.1, 1, 10],
-                'kernel': ['linear', 'rbf'],
+                'kernel': ['linear', 'rbf', "sigmoid", "poly"],
                 'gamma': ['scale', 'auto']
             }
         },
@@ -51,7 +51,7 @@ def get_classifiers():
             }
         },
         'MLP': {
-            'model': MLPClassifier(),
+            'model': MLPClassifier(random_state=42),
             'params': {
                 'hidden_layer_sizes': [(128, 64, 32)],
                 'activation': ['relu', 'logistic', 'tanh', 'identity'],
@@ -62,7 +62,7 @@ def get_classifiers():
             }
         },
         'MLP2': {
-            'model': MLPClassifier(),
+            'model': MLPClassifier(random_state=42),
             'params': {
                 'hidden_layer_sizes': [(64,), (64, 32)],
                 'activation': ['relu', 'logistic', 'tanh', 'identity'],
@@ -90,7 +90,14 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
 
     for name, clf_dict in classifiers.items():
         print(f"Training and tuning {name}...")
-        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=GroupKFold(n_splits=4), scoring='accuracy', n_jobs=-1)
+        cv = GroupKFold(n_splits=4)
+
+        # Plot CV indices
+        output_dir = os.path.join("results", model_name, f"pca_{n_components}")
+        cv_plot_path = plot_cv_indices(cv, X_train, y_train, train_groups, n_splits=4, output_dir=output_dir)
+        print(f"CV indices plot saved to: {cv_plot_path}")
+
+        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=cv, scoring='accuracy', n_jobs=-1)
         print(y_test)
         print(test_groups)
         print("Groups in Training:", train_groups)
@@ -153,70 +160,70 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
         confusion_matrix_path = os.path.join(output_dir, f"{name}_confusion_matrix.png")
         plot_and_save_confusion_matrix(y_test, y_pred, f"Confusion Matrix - {name}", confusion_matrix_path, output_dir)
 
-    # Late fusion strategies
-    print("\nApplying late fusion strategies...")
+    # # Late fusion strategies
+    # print("\nApplying late fusion strategies...")
 
-    # Initialize fused predictions
-    fused_probs_sum = np.zeros_like(list(classifier_preds.values())[0])  # Sum fusion
-    fused_probs_product = np.zeros_like(list(classifier_preds.values())[0])  # Log-transformed Product fusion
-    fused_probs_average = np.zeros_like(list(classifier_preds.values())[0])  # Average fusion
-    fused_probs_min = np.ones_like(list(classifier_preds.values())[0]) * np.inf  # Min fusion
-    fused_probs_max = np.zeros_like(list(classifier_preds.values())[0])  # Max fusion
+    # # Initialize fused predictions
+    # fused_probs_sum = np.zeros_like(list(classifier_preds.values())[0])  # Sum fusion
+    # fused_probs_product = np.zeros_like(list(classifier_preds.values())[0])  # Log-transformed Product fusion
+    # fused_probs_average = np.zeros_like(list(classifier_preds.values())[0])  # Average fusion
+    # fused_probs_min = np.ones_like(list(classifier_preds.values())[0]) * np.inf  # Min fusion
+    # fused_probs_max = np.zeros_like(list(classifier_preds.values())[0])  # Max fusion
 
-    # Combine predictions
-    for probs in classifier_preds.values():
-        fused_probs_sum += probs  # Summing probabilities
-        fused_probs_product += np.log(probs + 1e-10)  # Log-transformed product fusion
-        fused_probs_average += probs  # Average fusion (will divide later)
-        fused_probs_min = np.minimum(fused_probs_min, probs)  # Min fusion
-        fused_probs_max = np.maximum(fused_probs_max, probs)  # Max fusion
+    # # Combine predictions
+    # for probs in classifier_preds.values():
+    #     fused_probs_sum += probs  # Summing probabilities
+    #     fused_probs_product += np.log(probs + 1e-10)  # Log-transformed product fusion
+    #     fused_probs_average += probs  # Average fusion (will divide later)
+    #     fused_probs_min = np.minimum(fused_probs_min, probs)  # Min fusion
+    #     fused_probs_max = np.maximum(fused_probs_max, probs)  # Max fusion
 
-    # Final transformations
-    fused_probs_product = np.exp(fused_probs_product)  # Convert back to normal scale
-    fused_probs_average /= len(classifier_preds)  # Average fusion
+    # # Final transformations
+    # fused_probs_product = np.exp(fused_probs_product)  # Convert back to normal scale
+    # fused_probs_average /= len(classifier_preds)  # Average fusion
 
-    # Normalize min fusion
-    fused_probs_min = (fused_probs_min - np.min(fused_probs_min, axis=1, keepdims=True)) / (
-        np.max(fused_probs_min, axis=1, keepdims=True) - np.min(fused_probs_min, axis=1, keepdims=True) + 1e-10
-    )
+    # # Normalize min fusion
+    # fused_probs_min = (fused_probs_min - np.min(fused_probs_min, axis=1, keepdims=True)) / (
+    #     np.max(fused_probs_min, axis=1, keepdims=True) - np.min(fused_probs_min, axis=1, keepdims=True) + 1e-10
+    # )
 
-    # Convert probabilities to class labels
-    y_pred_sum = np.argmax(fused_probs_sum, axis=1)
-    y_pred_product = np.argmax(fused_probs_product, axis=1)
-    y_pred_average = np.argmax(fused_probs_average, axis=1)
-    y_pred_min = np.argmax(fused_probs_min, axis=1)
-    y_pred_max = np.argmax(fused_probs_max, axis=1)
+    # # Convert probabilities to class labels
+    # y_pred_sum = np.argmax(fused_probs_sum, axis=1)
+    # y_pred_product = np.argmax(fused_probs_product, axis=1)
+    # y_pred_average = np.argmax(fused_probs_average, axis=1)
+    # y_pred_min = np.argmax(fused_probs_min, axis=1)
+    # y_pred_max = np.argmax(fused_probs_max, axis=1)
 
-    # Evaluate fusion results
-    fusion_results = {
-        "Sum Fusion": {
-            "accuracy": accuracy_score(y_test, y_pred_sum),
-            "report": classification_report(y_test, y_pred_sum, output_dict=True)
-        },
-        "Product Fusion": {
-            "accuracy": accuracy_score(y_test, y_pred_product),
-            "report": classification_report(y_test, y_pred_product, output_dict=True)
-        },
-        "Average Fusion": {
-            "accuracy": accuracy_score(y_test, y_pred_average),
-            "report": classification_report(y_test, y_pred_average, output_dict=True)
-        },
-        "Min Fusion": {
-            "accuracy": accuracy_score(y_test, y_pred_min),
-            "report": classification_report(y_test, y_pred_min, output_dict=True)
-        },
-        "Max Fusion": {
-            "accuracy": accuracy_score(y_test, y_pred_max),
-            "report": classification_report(y_test, y_pred_max, output_dict=True)
-        }
-    }
+    # # Evaluate fusion results
+    # fusion_results = {
+    #     "Sum Fusion": {
+    #         "accuracy": accuracy_score(y_test, y_pred_sum),
+    #         "report": classification_report(y_test, y_pred_sum, output_dict=True)
+    #     },
+    #     "Product Fusion": {
+    #         "accuracy": accuracy_score(y_test, y_pred_product),
+    #         "report": classification_report(y_test, y_pred_product, output_dict=True)
+    #     },
+    #     "Average Fusion": {
+    #         "accuracy": accuracy_score(y_test, y_pred_average),
+    #         "report": classification_report(y_test, y_pred_average, output_dict=True)
+    #     },
+    #     "Min Fusion": {
+    #         "accuracy": accuracy_score(y_test, y_pred_min),
+    #         "report": classification_report(y_test, y_pred_min, output_dict=True)
+    #     },
+    #     "Max Fusion": {
+    #         "accuracy": accuracy_score(y_test, y_pred_max),
+    #         "report": classification_report(y_test, y_pred_max, output_dict=True)
+    #     }
+    # }
 
-    print("\nFusion Results:")
-    for fusion_name, fusion_metrics in fusion_results.items():
-        print(f"{fusion_name} - Accuracy: {fusion_metrics['accuracy']}")
-        print(f"{fusion_name} - Classification Report:\n", fusion_metrics['report'])
+    # print("\nFusion Results:")
+    # for fusion_name, fusion_metrics in fusion_results.items():
+    #     print(f"{fusion_name} - Accuracy: {fusion_metrics['accuracy']}")
+    #     print(f"{fusion_name} - Classification Report:\n", fusion_metrics['report'])
 
-    # Add fusion results to the overall results
-    results["Fusion"] = fusion_results
+    # # Add fusion results to the overall results
+    # results["Fusion"] = fusion_results
 
     return results
