@@ -11,67 +11,68 @@ import numpy as np
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from utils.save_plots import plot_and_save_confusion_matrix, plot_cv_indices
+import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 import os
 
 def get_classifiers():
     return {
-        'KNN': {
-            'model': KNeighborsClassifier(),
-            'params': {
-                'n_neighbors': [1, 3, 5, 7, 9],
-                'weights': ['uniform', 'distance'],
-                'p': [1, 2]
-            }
-        },
-        'SVM': {
-            'model': SVC(probability=True),
-            'params': {
-                'C': [0.1, 1, 10],
-                'kernel': ['linear', 'rbf', "sigmoid", "poly"],
-                'gamma': ['scale', 'auto']
-            }
-        },
-        'Random Forest': {
-            'model': RandomForestClassifier(),
-            'params': {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [None, 10, 20],
-                'min_samples_split': [2, 5],
-                'min_samples_leaf': [1, 2]
-            }
-        },
+        # 'KNN': {
+        #     'model': KNeighborsClassifier(),
+        #     'params': {
+        #         'n_neighbors': [1, 3, 5, 7, 9],
+        #         'weights': ['uniform', 'distance'],
+        #         'p': [1, 2]
+        #     }
+        # },
+        # 'SVM': {
+        #     'model': SVC(probability=True),
+        #     'params': {
+        #         'C': [0.1, 1, 10],
+        #         'kernel': ['linear', 'rbf', "sigmoid", "poly"],
+        #         'gamma': ['scale', 'auto']
+        #     }
+        # },
+        # 'Random Forest': {
+        #     'model': RandomForestClassifier(),
+        #     'params': {
+        #         'n_estimators': [50, 100, 200],
+        #         'max_depth': [None, 10, 20],
+        #         'min_samples_split': [2, 5],
+        #         'min_samples_leaf': [1, 2]
+        #     }
+        # },
         'Logistic Regression': {
             'model': LogisticRegression(max_iter=500),
             'params': {
-                'C': [0.1, 1, 10],
-                'penalty': ['l2', 'none'],
-                'solver': ['lbfgs', 'saga']
+                'C': [1],
+                'penalty': ['l2'],
+                'solver': [ 'saga']
             }
         },
-        'MLP': {
-            'model': MLPClassifier(random_state=42),
-            'params': {
-                'hidden_layer_sizes': [(128, 64, 32)],
-                'activation': ['relu', 'logistic', 'tanh', 'identity'],
-                'solver': ['adam', 'sgd', 'lbfgs'],
-                'learning_rate': ['constant', 'adaptive', 'invscaling'],
-                'max_iter': [200, 500, 1000],
-                'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
-            }
-        },
-        'MLP2': {
-            'model': MLPClassifier(random_state=42),
-            'params': {
-                'hidden_layer_sizes': [(64,), (64, 32)],
-                'activation': ['relu', 'logistic', 'tanh', 'identity'],
-                'solver': ['adam', 'sgd', 'lbfgs'],
-                'learning_rate': ['constant', 'adaptive', 'invscaling'],
-                'max_iter': [200, 500, 1000],
-                'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
-            }
-        },
+        # 'MLP': {
+        #     'model': MLPClassifier(random_state=42),
+        #     'params': {
+        #         'hidden_layer_sizes': [(128, 64, 32)],
+        #         'activation': ['relu', 'logistic', 'tanh', 'identity'],
+        #         'solver': ['adam', 'sgd', 'lbfgs'],
+        #         'learning_rate': ['constant', 'adaptive', 'invscaling'],
+        #         'max_iter': [200, 500, 1000],
+        #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
+        #     }
+        # },
+        # 'MLP2': {
+        #     'model': MLPClassifier(random_state=42),
+        #     'params': {
+        #         'hidden_layer_sizes': [(64,), (64, 32)],
+        #         'activation': ['relu', 'logistic', 'tanh', 'identity'],
+        #         'solver': ['adam', 'sgd', 'lbfgs'],
+        #         'learning_rate': ['constant', 'adaptive', 'invscaling'],
+        #         'max_iter': [200, 500, 1000],
+        #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
+        #     }
+        # },
         # 'XGBoost': {
         #     'model': xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss'),
         #     'params': {
@@ -83,26 +84,29 @@ def get_classifiers():
         # }
     }
 
-def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_groups, model_name, n_components):
+def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_groups, model_name, n_components, test_images):
     classifiers = get_classifiers()
     results = {}
     classifier_preds = {}  # To store predictions for late fusion
+    # print(test_groups[:5])  # Print first 5 values
 
     for name, clf_dict in classifiers.items():
         print(f"Training and tuning {name}...")
         cv = GroupKFold(n_splits=4)
 
         # Plot CV indices
-        output_dir = os.path.join("results", model_name, f"pca_{n_components}")
-        cv_plot_path = plot_cv_indices(cv, X_train, y_train, train_groups, n_splits=4, output_dir=output_dir)
-        print(f"CV indices plot saved to: {cv_plot_path}")
+        # output_dir = os.path.join("results", model_name, f"pca_{n_components}")
+        # cv_plot_path = plot_cv_indices(cv, X_train, y_train, train_groups, n_splits=3, output_dir=output_dir)
+        # print(f"CV indices plot saved to: {cv_plot_path}")
 
-        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=cv, scoring='accuracy', n_jobs=-1)
+        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=cv, scoring='accuracy', n_jobs=2)
         print(y_test)
-        print(test_groups)
+        # print(test_groups)
         print("Groups in Training:", train_groups)
         print("Groups in Testing:", test_groups)
-        grid.fit(X_train, y_train, groups=train_groups)
+        grid.fit(X_train, y_train, groups=train_groups);
+        print("After train:", test_groups)
+
         best_model = grid.best_estimator_
         print(f"{name} - Best Parameters: {grid.best_params_}")
 
@@ -159,8 +163,22 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
         output_dir = os.path.join("results", model_name, f"pca_{n_components}")
         confusion_matrix_path = os.path.join(output_dir, f"{name}_confusion_matrix.png")
         plot_and_save_confusion_matrix(y_test, y_pred, f"Confusion Matrix - {name}", confusion_matrix_path, output_dir)
+        misclassified_indices = np.where(y_test != y_pred)[0]
 
-    # # Late fusion strategies
+        print(f"Total misclassified samples: {len(misclassified_indices)}")
+        # Plot some misclassified images
+        num_samples = min(10, len(misclassified_indices))  # Show up to 10 samples
+        fig, axes = plt.subplots(1, num_samples, figsize=(15, 5))
+
+        print(f"Total misclassified samples: {len(misclassified_indices)}")
+
+        # for idx in misclassified_indices:
+        #     print(idx)
+        #     # print(f"True: {y_test[idx]}, Pred: {y_pred[idx]}, Animal ID: {test_groups[idx]}")
+        #     print(f"True: {y_test[idx]}, Pred: {y_pred[idx]}, Image ID: {test_groups[idx]}")
+
+
+    # # # Late fusion strategies
     # print("\nApplying late fusion strategies...")
 
     # # Initialize fused predictions
@@ -225,5 +243,95 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
 
     # # Add fusion results to the overall results
     # results["Fusion"] = fusion_results
+
+    return results
+
+def train_and_evaluate2(X_train, y_train, X_test, y_test, train_groups, test_groups, model_name, n_components):
+    classifiers = get_classifiers()
+    results = {}
+    classifier_preds = {}  # To store predictions for late fusion
+    # print(test_groups[:5])  # Print first 5 values
+
+    for name, clf_dict in classifiers.items():
+        print(f"Training and tuning {name}...")
+        cv = GroupKFold(n_splits=4)
+
+        # Plot CV indices
+        # output_dir = os.path.join("results", model_name, f"pca_{n_components}")
+        # cv_plot_path = plot_cv_indices(cv, X_train, y_train, train_groups, n_splits=3, output_dir=output_dir)
+        # print(f"CV indices plot saved to: {cv_plot_path}")
+
+        grid = GridSearchCV(clf_dict['model'], clf_dict['params'], cv=cv, scoring='accuracy', n_jobs=2)
+        print(y_test)
+        # print(test_groups)
+        print("Groups in Training:", train_groups)
+        print("Groups in Testing:", test_groups)
+        grid.fit(X_train, y_train, groups=train_groups);
+        print("After train:", test_groups)
+
+        best_model = grid.best_estimator_
+        print(f"{name} - Best Parameters: {grid.best_params_}")
+
+        # Collect predicted probabilities for fusion
+        y_probs = best_model.predict_proba(X_test)
+        classifier_preds[name] = y_probs
+
+        # Evaluate individual classifiers
+        y_pred = best_model.predict(X_test)   #np.argmax(y_probs, axis=1)
+        accuracy = accuracy_score(y_test, y_pred)
+        report = classification_report(y_test, y_pred, output_dict=True)
+
+        # 
+        train_pred = best_model.predict(X_train)
+        train_accuracy = accuracy_score(y_train, train_pred)
+        print("***TRAINING")
+        print(train_pred)
+        print(train_accuracy)
+
+        # Validate
+
+        # val_images = scale_test_features = scaler.transform(validation_features)
+
+
+
+        # # Make predictions on the validation set
+        # y_val_pred = best_model.predict(val_images)
+
+        # # Evaluate the performance
+        # val_accuracy = accuracy_score(val_labels, y_val_pred)
+        # val_report = classification_report(val_labels, y_val_pred)
+
+        # # Print results
+        # print(f"Validation Accuracy: {val_accuracy:.4f}")
+        # print("Validation Classification Report:")
+        # print(val_report)
+
+        print("Training Predictions:", np.unique(train_pred, return_counts=True))
+        print("Test Predictions:", np.unique(y_pred, return_counts=True))
+        print("Actual Test Labels:", np.unique(y_test, return_counts=True))
+
+        results[name] = {
+            "train_accuracy": f"{train_accuracy:.4f}",  # Store training accuracy
+            "accuracy":  f"{accuracy:.4f}", # Test accuracy
+            "report": report,
+            "best_params": grid.best_params_,
+            # "val_accuracy": val_accuracy,
+            # "val_report": val_report
+        }
+        print(f"{name} - Training Accuracy: {train_accuracy:.4f}")  # Add this
+        print(f"{name} - Test Accuracy: {accuracy}")
+        print(f"{name} - Classification Report:\n", report)
+        # Generate and save confusion matrix
+        output_dir = os.path.join("results", model_name, f"pca_{n_components}")
+        confusion_matrix_path = os.path.join(output_dir, f"{name}_confusion_matrix.png")
+        plot_and_save_confusion_matrix(y_test, y_pred, f"Confusion Matrix - {name}", confusion_matrix_path, output_dir)
+        misclassified_indices = np.where(y_test != y_pred)[0]
+
+        print(f"Total misclassified samples: {len(misclassified_indices)}")
+        # Plot some misclassified images
+        num_samples = min(10, len(misclassified_indices))  # Show up to 10 samples
+        fig, axes = plt.subplots(1, num_samples, figsize=(15, 5))
+
+        print(f"Total misclassified samples: {len(misclassified_indices)}")
 
     return results

@@ -46,7 +46,7 @@ def plot_and_save_pca_3d(X_pca, labels, title, filename):
     unique_labels = np.unique(labels)
     for label in unique_labels:
         idx = labels == label
-        ax.scatter(X_pca[idx, 0], X_pca[idx, 1], X_pca[idx, 2], label=f"Class {label}", alpha=0.7)
+        ax.scatter(X_pca[idx, 0], X_pca[idx, 1], X_pca[idx, 1], label=f"Class {label}", alpha=0.7)
 
     ax.set_xlabel("Principal Component 1")
     ax.set_ylabel("Principal Component 2")
