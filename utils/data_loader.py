@@ -66,6 +66,9 @@ def augment_images(folder, current_count, max_images):
 def load_data():
     c_counts = count_images_in_folder(C_PATH)
     ccr_counts = count_images_in_folder(CCR_PATH)
+    print(f"C c_counts: {c_counts}")
+    print(f"CR ccr_counts: {ccr_counts}")
+
     logging.info(f"C c_counts: {c_counts}")
     logging.info(f"CR ccr_counts: {ccr_counts}")
 

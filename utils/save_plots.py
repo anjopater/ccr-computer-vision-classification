@@ -155,8 +155,8 @@ def plot_and_save_confusion_matrix(y_true, y_pred, title, filename, output_dir):
         annot.append(row)
     
     sns.heatmap(cm, annot=annot, fmt="", cmap="Blues", cbar=False,
-                xticklabels=["Control", "Cancer"],
-                yticklabels=["Control", "Cancer"], 
+                xticklabels=["Control", "Carcinogenesis"],
+                yticklabels=["Control", "Carcinogenesis"], 
                 annot_kws={"size": 12}, cbar_kws={"shrink": 0.8})
     
     # Title and labels

@@ -17,31 +17,31 @@ import os
 
 def get_classifiers():
     return {
-        'KNN': {
-            'model': KNeighborsClassifier(),
-            'params': {
-                'n_neighbors': [1, 3, 5, 7, 9],
-                'weights': ['uniform', 'distance'],
-                'p': [1, 2]
-            }
-        },
-        'SVM': {
-            'model': SVC(probability=True),
-            'params': {
-                'C': [0.1, 1, 10],
-                'kernel': ['linear', 'rbf', "sigmoid", "poly"],
-                'gamma': ['scale', 'auto']
-            }
-        },
-        'Random Forest': {
-            'model': RandomForestClassifier(),
-            'params': {
-                'n_estimators': [50, 100, 200],
-                'max_depth': [None, 10, 20],
-                'min_samples_split': [2, 5],
-                'min_samples_leaf': [1, 2]
-            }
-        },
+        # 'KNN': {
+        #     'model': KNeighborsClassifier(),
+        #     'params': {
+        #         'n_neighbors': [1, 3, 5, 7, 9],
+        #         'weights': ['uniform', 'distance'],
+        #         'p': [1, 2]
+        #     }
+        # },
+        # 'SVM': {
+        #     'model': SVC(probability=True),
+        #     'params': {
+        #         'C': [0.1, 1, 10],
+        #         'kernel': ['linear', 'rbf', "sigmoid", "poly"],
+        #         'gamma': ['scale', 'auto']
+        #     }
+        # },
+        # 'Random Forest': {
+        #     'model': RandomForestClassifier(),
+        #     'params': {
+        #         'n_estimators': [50, 100, 200],
+        #         'max_depth': [None, 10, 20],
+        #         'min_samples_split': [2, 5],
+        #         'min_samples_leaf': [1, 2]
+        #     }
+        # },
         'Logistic Regression': {
             'model': LogisticRegression(max_iter=500),
             'params': {
@@ -50,28 +50,28 @@ def get_classifiers():
                 'solver': ['lbfgs', 'saga']
             }
         },
-        'MLP': {
-            'model': MLPClassifier(random_state=42),
-            'params': {
-                'hidden_layer_sizes': [(128, 64, 32)],
-                'activation': ['relu', 'logistic', 'tanh', 'identity'],
-                'solver': ['adam', 'sgd', 'lbfgs'],
-                'learning_rate': ['constant', 'adaptive', 'invscaling'],
-                'max_iter': [200, 500, 1000],
-                'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
-            }
-        },
-        'MLP2': {
-            'model': MLPClassifier(random_state=42),
-            'params': {
-                'hidden_layer_sizes': [(64,), (64, 32)],
-                'activation': ['relu', 'logistic', 'tanh', 'identity'],
-                'solver': ['adam', 'sgd', 'lbfgs'],
-                'learning_rate': ['constant', 'adaptive', 'invscaling'],
-                'max_iter': [200, 500, 1000],
-                'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
-            }
-        },
+        # 'MLP': {
+        #     'model': MLPClassifier(random_state=42),
+        #     'params': {
+        #         'hidden_layer_sizes': [(128, 64, 32)],
+        #         'activation': ['relu', 'logistic', 'tanh', 'identity'],
+        #         'solver': ['adam', 'sgd', 'lbfgs'],
+        #         'learning_rate': ['constant', 'adaptive', 'invscaling'],
+        #         'max_iter': [200, 500, 1000],
+        #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
+        #     }
+        # },    
+        # 'MLP2': {
+        #     'model': MLPClassifier(random_state=42),
+        #     'params': {
+        #         'hidden_layer_sizes': [(64,), (64, 32)],
+        #         'activation': ['relu', 'logistic', 'tanh', 'identity'],
+        #         'solver': ['adam', 'sgd', 'lbfgs'],
+        #         'learning_rate': ['constant', 'adaptive', 'invscaling'],
+        #         'max_iter': [200, 500, 1000],
+        #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
+        #     }
+        # },
         # 'XGBoost': {
         #     'model': xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss'),
         #     'params': {
