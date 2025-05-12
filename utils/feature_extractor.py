@@ -19,7 +19,6 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from config import IMAGES_SIZE_MODELS
 
-import numpy as np
 from skimage import io, color, feature, filters, measure
 from skimage.filters import sobel
 from skimage.color import rgb2gray
@@ -33,6 +32,12 @@ from histomicstk.preprocessing.color_deconvolution import color_deconvolution
 from skimage.feature import graycomatrix, graycoprops
 from skimage.util import img_as_ubyte
 from skimage import color, io, feature, measure
+
+from skimage.io import imread
+from skimage.color import rgb2hed
+from skimage.filters import threshold_otsu
+from skimage.measure import regionprops, label
+from skimage.morphology import remove_small_objects
 
 def getPreprocess_input(model_name):
     if model_name == "resnet50":
@@ -211,7 +216,7 @@ def extract_color_features(image):
     return np.array([mean_r, mean_g, mean_b, std_r, std_g, std_b])
 
 # Main function to extract all features
-def extract_traditional_features(image_paths):
+def extract_traditional_features2(image_paths):
     print("EXTRACTING FEATURES WITH TRADITIONAL METHODS")
 
 
@@ -246,3 +251,95 @@ def extract_traditional_features(image_paths):
         features.append(feature_vector)
     
     return np.array(features)
+
+
+def extract_traditional_features(image_paths):
+    print("EXTRACTING H&E FEATURES")
+    
+    features = []
+    for path in image_paths:
+        img = Image.open(path).convert("RGB")
+        img = img.resize((224, 224))  # Resize to a common size (e.g., 224x224)
+        img_array = np.array(img)
+        # Load and preprocess image
+        # img_array = imread(path)
+        # if len(img_array.shape) == 2:  # Handle grayscale images
+        #     img_array = np.stack((img_array,)*3, axis=-1)
+        
+        # Extract all feature types
+        nuclear_features = extract_nuclear_features(img_array)
+        # eosin_features = extract_eosin_features(img_array)
+        # stain_features = extract_stain_features(img_array)
+        
+        # Concatenate all features
+        feature_vector = np.concatenate([
+            nuclear_features,
+            # eosin_features,
+            # stain_features
+        ])
+        
+        features.append(feature_vector)
+    
+    return np.array(features)
+
+def extract_nuclear_features(rgb_image):
+    """Extract features related to nuclei morphology"""
+    hed_image = rgb2hed(rgb_image)
+    h_channel = hed_image[:, :, 0]
+    
+    # Threshold and label nuclei
+    threshold = threshold_otsu(h_channel)
+    nuclei_mask = h_channel > threshold
+    nuclei_mask = remove_small_objects(nuclei_mask, min_size=50)
+    labeled_nuclei = label(nuclei_mask)
+    props = regionprops(labeled_nuclei, intensity_image=h_channel)
+    
+    if not props:
+        return np.zeros(6)  # Return zeros if no nuclei found
+    
+    areas = [prop.area for prop in props]
+    intensities = [prop.mean_intensity for prop in props]
+    
+    return np.array([
+        len(props) / (h_channel.shape[0] * h_channel.shape[1]),  # nucleus_density
+        np.mean(areas),                                          # mean_nucleus_area
+        np.std(areas) / (np.mean(areas) + 1e-6),                 # nucleus_area_variation
+        np.mean(intensities),                                    # mean_nucleus_intensity
+        np.std(intensities) / (np.mean(intensities) + 1e-6),     # nucleus_intensity_variation
+        np.max(areas) / (np.mean(areas) + 1e-6)                 # max_nucleus_ratio
+    ])
+
+def extract_eosin_features(rgb_image):
+    """Extract features related to eosin staining (cytoplasm)"""
+    hed_image = rgb2hed(rgb_image)
+    e_channel = hed_image[:, :, 1]
+    
+    # Threshold and label eosin regions
+    threshold = threshold_otsu(e_channel)
+    eosin_mask = e_channel > threshold
+    eosin_mask = remove_small_objects(eosin_mask, min_size=50)
+    labeled_eosin = label(eosin_mask)
+    props = regionprops(labeled_eosin, intensity_image=e_channel)
+    
+    if not props:
+        return np.zeros(3)  # Return zeros if no eosin regions found
+    
+    intensities = [prop.mean_intensity for prop in props]
+    
+    return np.array([
+        np.sum(eosin_mask) / (e_channel.shape[0] * e_channel.shape[1]),  # eosin_coverage
+        np.mean(intensities),                                            # mean_eosin_intensity
+        np.std(intensities) / (np.mean(intensities) + 1e-6)              # eosin_variation
+    ])
+
+def extract_stain_features(rgb_image):
+    """Extract global stain intensity features"""
+    hed_image = rgb2hed(rgb_image)
+    h_channel = hed_image[:, :, 0]
+    e_channel = hed_image[:, :, 1]
+    
+    return np.array([
+        np.mean(h_channel),                     # hematoxylin_intensity
+        np.mean(e_channel),                     # eosin_intensity
+        np.mean(h_channel) / (np.mean(e_channel) + 1e-6)  # stain_ratio
+    ])

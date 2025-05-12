@@ -3,14 +3,14 @@
 import os
 
 # Paths
-BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/LOBO_D_E_ORIGINAL_MIXED_argumented"
-C_PATH = os.path.join(BASE_PATH, "C")  # Control
-CCR_PATH = os.path.join(BASE_PATH, "CCR")  # Cancer
+# BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/LOBO_D_E_ORIGINAL_MIXED_argumented"
+# C_PATH = os.path.join(BASE_PATH, "C")  # Control
+# CCR_PATH = os.path.join(BASE_PATH, "CCR")  # Cancer
 
 
-# BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/FOTOS_HE_FIGADO_ORIGINAL_ORGANIZED"
-# C_PATH = os.path.join(BASE_PATH, "Controle")  # Control
-# CCR_PATH = os.path.join(BASE_PATH, "CR")  # Cancer
+BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/FOTOS_HE_FIGADO_ORIGINAL_ORGANIZED"
+C_PATH = os.path.join(BASE_PATH, "Controle")  # Control
+CCR_PATH = os.path.join(BASE_PATH, "CR")  # Cancer
 
 # PCA Components to Test
 PCA_COMPONENTS = [2]

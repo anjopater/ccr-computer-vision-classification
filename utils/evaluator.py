@@ -18,14 +18,14 @@ import os
 
 def get_classifiers():
     return {
-        # 'KNN': {
-        #     'model': KNeighborsClassifier(),
-        #     'params': {
-        #         'n_neighbors': [1, 3, 5, 7, 9],
-        #         'weights': ['uniform', 'distance'],
-        #         'p': [1, 2]
-        #     }
-        # },
+            # 'KNN': {
+            #     'model': KNeighborsClassifier(),
+            #     'params': {
+            #         'n_neighbors': [1, 3, 5, 7, 9],
+            #         'weights': ['uniform', 'distance'],
+            #         'p': [1, 2]
+            #     }
+            # },
         # 'SVM': {
         #     'model': SVC(probability=True),
         #     'params': {
