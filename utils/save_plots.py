@@ -131,7 +131,7 @@ def generate_plots_and_save_results(X_train_scaled, X_train_pca, train_labels, X
         "correlation_heatmap": correlation_heatmap_path
     }
 
-def plot_and_save_confusion_matrix(y_true, y_pred, title, filename, output_dir):
+def plot_and_save_confusion_matrix2(y_true, y_pred, title, filename, output_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
@@ -167,8 +167,48 @@ def plot_and_save_confusion_matrix(y_true, y_pred, title, filename, output_dir):
     # Save the plot
     plt.savefig(filename)
     plt.close()
+    
+def plot_and_save_confusion_matrix(y_true, y_pred, title, filename, output_dir):
+    """
+    Plot & save a confusion matrix with both counts and row percentages.
+    """
+    os.makedirs(output_dir, exist_ok=True)
 
-def plot_cv_indices(cv, X, y, group, n_splits, output_dir):
+    # Compute counts
+    cm = confusion_matrix(y_true, y_pred)
+    # Compute row‐normalized percentages
+    cm_pct = cm.astype(float) / cm.sum(axis=1)[:, np.newaxis] * 100
+
+    # Build annotation strings
+    annot = np.empty_like(cm).astype(object)
+    n_classes = cm.shape[0]
+    for i in range(n_classes):
+        for j in range(n_classes):
+            c = cm[i, j]
+            p = cm_pct[i, j]
+            annot[i, j] = f"{c}\n({p:.1f}%)"
+
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(
+        cm,
+        annot=annot,
+        fmt="",
+        cmap="Blues",
+        cbar=False,
+        xticklabels=["Control","Carcinogenesis"],
+        yticklabels=["Control","Carcinogenesis"],
+        annot_kws={"size":12}
+    )
+    plt.title(title)
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+
+    out_path = os.path.join(output_dir, filename)
+    plt.savefig(out_path, bbox_inches="tight")
+    plt.close()
+    print(f"Saved confusion matrix to {out_path}")
+
+def plot_cv_indices2(cv, X, y, group, n_splits, output_dir):
     """
     Plot the indices of the cross-validation splits and log them in text format.
     Also log the unique animals (groups) in each fold.
@@ -239,6 +279,115 @@ def plot_cv_indices(cv, X, y, group, n_splits, output_dir):
     print(f"CV splits log saved to: {log_file_path}")
 
     return cv_plot_path, log_file_path
+
+def plot_cv_indices(cv, X, y, group, n_splits, output_dir):
+    import os, numpy as np, matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    os.makedirs(output_dir, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Build a mapping animal → list of positions
+    positions = {}
+    for idx, animal in enumerate(group):
+        positions.setdefault(animal, []).append(idx)
+
+    # Plot CV splits as before
+    for fold_idx, (train, test) in enumerate(cv.split(X, y, group)):
+        indices = np.full(len(X), np.nan)
+        indices[train] = 1
+        indices[test]  = 0
+        colors = ['orange' if v == 1 else 'blue' for v in indices]
+        ax.scatter(range(len(X)), [fold_idx + 0.5]*len(X),
+                   c=colors, marker='_', lw=10)
+
+    # Now set x‐ticks at each animal’s median position
+    animal_ids   = list(positions.keys())
+    tick_locs    = [np.median(positions[a]) for a in animal_ids]
+    ax.set_xticks(tick_locs)
+    ax.set_xticklabels(animal_ids, rotation=0, fontsize=10)
+
+    # Y labels
+    ax.set_yticks(np.arange(n_splits) + 0.5)
+    ax.set_yticklabels([f"Fold {i+1}" for i in range(n_splits)])
+
+    ax.set_xlabel("Animal ID")
+    ax.set_ylabel("CV Fold")
+    ax.set_title("Cross-Validation Splits by Animal")
+
+    # Legend
+    ax.legend([Patch(color='orange'), Patch(color='blue')],
+              ['Train','Validation'],
+              loc='upper right')
+
+    # Save everything
+    log_file = os.path.join(output_dir, "cv_splits_log.txt")
+    # …write the same logs if you like…
+    plot_path = os.path.join(output_dir, "cv_indices_labeled.png")
+    fig.savefig(plot_path, bbox_inches="tight")
+    plt.close(fig)
+
+    return plot_path, log_file
+
+def plot_fold_animal_heatmap(cv, groups, n_splits, output_dir):
+    """
+    Plot a clean heatmap where rows = CV folds, cols = animal IDs,
+    and cells indicate Train (orange) vs. Validation (blue).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Determine unique animals in order of appearance
+    animals = list(dict.fromkeys(groups))
+    
+    # Build matrix: 0 = train, 1 = val
+    mat = np.zeros((n_splits, len(animals)), dtype=int)
+    for fold_idx, (_, val_idx) in enumerate(cv.split(np.zeros(len(groups)), groups, groups)):
+        val_animals = set(groups[val_idx])
+        for j, a in enumerate(animals):
+            if a in val_animals:
+                mat[fold_idx, j] = 1
+    
+    # Set up figure
+    plt.figure(figsize=(len(animals)*0.5 + 2, n_splits*0.6 + 1))
+    sns.set_style("white")  # clean background
+    
+    # Draw heatmap
+    ax = sns.heatmap(
+        mat,
+        cmap=['#FFA500', '#1f77b4'],  # orange, then blue
+        cbar=False,
+        linewidths=0.5,               # white lines between cells
+        linecolor="white",
+        xticklabels=animals,
+        yticklabels=[f"Fold {i+1}" for i in range(n_splits)],
+        square=True
+    )
+    
+    # Axis labels & title
+    ax.set_xlabel("Animal ID", fontsize=10)
+    ax.set_ylabel("CV Fold",   fontsize=10)
+    ax.set_title("Train vs. Validation Animals per Fold", fontsize=10, pad=12)
+    
+    # Legend
+    legend_patches = [
+        Patch(facecolor='#FFA500', edgecolor='white', label='Train'),
+        Patch(facecolor='#1f77b4', edgecolor='white', label='Validation')
+    ]
+    ax.legend(
+        handles=legend_patches,
+        loc='upper left',
+        bbox_to_anchor=(1.02, 1),
+        borderaxespad=0,
+        frameon=False
+    )
+    
+    plt.tight_layout()
+    out_path = os.path.join(output_dir, "cv_animal_heatmap_elegant.png")
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f"Saved elegant CV heatmap to {out_path}")
+    return out_path
+
 
 
 

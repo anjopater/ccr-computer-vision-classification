@@ -109,7 +109,7 @@ def load_data():
     labels = np.array([0] * len(c_image_paths) + [1] * len(ccr_image_paths))
 
     # Split data using GroupShuffleSpli 0.2
-    gss = GroupShuffleSplit(test_size=0.2, train_size=0.8, n_splits=1, random_state=42)
+    gss = GroupShuffleSplit(test_size=0.25, n_splits=1, random_state=42)
     train_idx, test_idx = next(gss.split(image_paths, labels, groups=groups))
     train_images = [image_paths[i] for i in train_idx]
     train_labels = labels[train_idx]

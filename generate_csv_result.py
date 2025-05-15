@@ -20,8 +20,9 @@ for extractor, components_data in data.items():
                 continue
             
             # Extract metrics and parameters
-            accuracy = details["accuracy"]
-            report = details["report"]
+            accuracy = details["test_accuracy"]
+            report = details["classification_report"]
+            
             precision = report["macro avg"]["precision"]
             recall = report["macro avg"]["recall"]
             f1 = report["macro avg"]["f1-score"]

@@ -42,14 +42,16 @@ def get_classifiers():
         #         'min_samples_leaf': [1, 2]
         #     }
         # },
-        'Logistic Regression': {
-            'model': LogisticRegression(max_iter=500),
-            'params': {
-                'C': [0.1, 1, 10],
-                'penalty': ['l2', 'none'],
-                'solver': ['lbfgs', 'saga']
-            }
-        },
+        # 'Logistic Regression': {
+        #     'model': LogisticRegression(max_iter=500),
+        #     'params': {
+        #         'C': [0.1, 1, 10],
+        #         'penalty': ['l2', 'none'],
+        #         'solver': ['lbfgs', 'saga'],
+        #         'max_iter': [500, 1000, 2000, 5000],
+
+        #     }
+        # },
         # 'MLP': {
         #     'model': MLPClassifier(random_state=42),
         #     'params': {
@@ -61,17 +63,17 @@ def get_classifiers():
         #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
         #     }
         # },    
-        # 'MLP2': {
-        #     'model': MLPClassifier(random_state=42),
-        #     'params': {
-        #         'hidden_layer_sizes': [(64,), (64, 32)],
-        #         'activation': ['relu', 'logistic', 'tanh', 'identity'],
-        #         'solver': ['adam', 'sgd', 'lbfgs'],
-        #         'learning_rate': ['constant', 'adaptive', 'invscaling'],
-        #         'max_iter': [200, 500, 1000],
-        #         'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
-        #     }
-        # },
+        'MLP2': {
+            'model': MLPClassifier(random_state=42),
+            'params': {
+                'hidden_layer_sizes': [(64,), (64, 32)],
+                'activation': ['relu', 'logistic', 'tanh', 'identity'],
+                'solver': ['adam', 'sgd', 'lbfgs'],
+                'learning_rate': ['constant', 'adaptive', 'invscaling'],
+                'max_iter': [200, 500, 1000],
+                'alpha': [0.0001, 0.001, 0.01]  # Regularization strength
+            }
+        },
         # 'XGBoost': {
         #     'model': xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss'),
         #     'params': {
@@ -90,7 +92,6 @@ def train_and_evaluate(X_train, y_train, X_test, y_test, train_groups, test_grou
 
     for name, clf_dict in classifiers.items():
         print(f"Training and tuning {name}...")
-        cv = GroupKFold(n_splits=4)
 
         # Plot CV indices
         output_dir = os.path.join("results", model_name, f"pca_{n_components}")
