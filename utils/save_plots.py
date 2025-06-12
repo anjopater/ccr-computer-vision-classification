@@ -329,66 +329,84 @@ def plot_cv_indices(cv, X, y, group, n_splits, output_dir):
 
     return plot_path, log_file
 
-def plot_fold_animal_heatmap(cv, groups, n_splits, output_dir):
+
+def plot_fold_animal_heatmap(cv, groups, labels, output_dir):
     """
     Plot a clean heatmap where rows = CV folds, cols = animal IDs,
     and cells indicate Train (orange) vs. Validation (blue).
+    
+    Parameters
+    ----------
+    cv : cross-validation splitter
+        Any sklearn splitter with .split(..., groups=groups) and .n_splits attribute.
+    groups : array-like of shape (n_samples,)
+        Group labels for each sample (e.g. "C_1", "CRC_3", etc.).
+    labels : array-like of shape (n_samples,)
+        True class labels (only used to pass into cv.split).
+    output_dir : str
+        Directory where the heatmap PNG will be saved.
+    
+    Saves
+    -----
+    cv_animal_heatmap.png in output_dir
     """
+    n_splits = cv.n_splits
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Determine unique animals in order of appearance
-    animals = list(dict.fromkeys(groups))
-    
+
+    # Determine unique animals in order of first appearance
+    animals = []
+    seen = set()
+    for g in groups:
+        if g not in seen:
+            seen.add(g)
+            animals.append(g)
+
     # Build matrix: 0 = train, 1 = val
     mat = np.zeros((n_splits, len(animals)), dtype=int)
-    for fold_idx, (_, val_idx) in enumerate(cv.split(np.zeros(len(groups)), groups, groups)):
+    for fold_idx, (_, val_idx) in enumerate(
+            cv.split(np.zeros(len(groups)), labels, groups)):
         val_animals = set(groups[val_idx])
         for j, a in enumerate(animals):
             if a in val_animals:
                 mat[fold_idx, j] = 1
-    
-    # Set up figure
+
+    # Plot it
     plt.figure(figsize=(len(animals)*0.5 + 2, n_splits*0.6 + 1))
-    sns.set_style("white")  # clean background
-    
-    # Draw heatmap
+    sns.set_style("white")
+
     ax = sns.heatmap(
         mat,
-        cmap=['#FFA500', '#1f77b4'],  # orange, then blue
+        cmap=['#FFA500', '#1f77b4'],  # train=orange, val=blue
         cbar=False,
-        linewidths=0.5,               # white lines between cells
+        linewidths=0.5,
         linecolor="white",
         xticklabels=animals,
         yticklabels=[f"Fold {i+1}" for i in range(n_splits)],
         square=True
     )
-    
-    # Axis labels & title
+
     ax.set_xlabel("Animal ID", fontsize=10)
     ax.set_ylabel("CV Fold",   fontsize=10)
-    ax.set_title("Train vs. Validation Animals per Fold", fontsize=10, pad=12)
-    
-    # Legend
+    ax.set_title("Train vs. Validation Animals per Fold", fontsize=12, pad=12)
+
     legend_patches = [
         Patch(facecolor='#FFA500', edgecolor='white', label='Train'),
-        Patch(facecolor='#1f77b4', edgecolor='white', label='Validation')
+        Patch(facecolor='#1f77b4', edgecolor='white', label='Validation'),
     ]
     ax.legend(
-        handles=legend_patches,
-        loc='upper left',
-        bbox_to_anchor=(1.02, 1),
-        borderaxespad=0,
-        frameon=False
-    )
-    
+            handles   = legend_patches,
+            loc       = 'upper center',
+            bbox_to_anchor = (0.5, -0.15),  # y-offset below the axes
+            ncol      = 2,
+            frameon   = False
+        )
+
     plt.tight_layout()
-    out_path = os.path.join(output_dir, "cv_animal_heatmap_elegant.png")
+    out_path = os.path.join(output_dir, "cv_elegant_animal_heatmap.png")
     plt.savefig(out_path, dpi=150)
     plt.close()
-    print(f"Saved elegant CV heatmap to {out_path}")
+    print(f"Saved CV animal-heatmap to {out_path}")
     return out_path
-
-
 
 
 def plot_and_save_feature_histograms(features, labels, class_names, output_dir, num_bins=30):

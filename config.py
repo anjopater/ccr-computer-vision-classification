@@ -3,25 +3,27 @@
 import os
 
 # Paths
-# BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/LOBO_D_E_ORIGINAL_MIXED_argumented"
-# C_PATH = os.path.join(BASE_PATH, "C")  # Control
-# CCR_PATH = os.path.join(BASE_PATH, "CCR")  # Cancer
+BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/LOBO_D_E_ORIGINAL_MIXED_argumented"
+C_PATH = os.path.join(BASE_PATH, "C")  # Control
+CCR_PATH = os.path.join(BASE_PATH, "CCR")  # Cancer
 
 
-BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/FOTOS_HE_FIGADO_ORIGINAL_ORGANIZED"
-C_PATH = os.path.join(BASE_PATH, "Controle")  # Control
-CCR_PATH = os.path.join(BASE_PATH, "CR")  # Cancer
+# BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/HE_DATASET_LIVER"
+# C_PATH = os.path.join(BASE_PATH, "Controle")  # Control
+# CCR_PATH = os.path.join(BASE_PATH, "CRC")  # Cancer
 
 # PCA Components to Test
-PCA_COMPONENTS = [80]
+PCA_COMPONENTS = [80, 60]
 
 # Models to Test
 MODELS = {
-    # "Inceptionv3": "inceptionv3",
-    # "ResNet50": "resnet50",
-     "DenseNet121": "densenet121",
-    # "EfficientNetB0": "efficientNetB0",
-    # "ConvNeXtTiny": "convNeXtTiny"
+      #"Inceptionv3": "inceptionv3",
+      #"ResNet50": "resnet50",
+      #"DenseNet121": "densenet121",
+      #"EfficientNetB0": "efficientNetB0",
+     #"ConvNeXtTiny": "convNeXtTiny"
+     #"MorphoTx": "haralick_granulo"   # ← new key
+
 }
 
 IMAGES_SIZE_MODELS = {
@@ -39,3 +41,4 @@ RANDOM_STATE = 42
 
 # Output File
 RESULTS_FILE = "results.json"
+MAX_ANIMALS_PER_COHORT = 6          # ← NEW

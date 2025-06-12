@@ -1,153 +1,169 @@
 # utils/data_loader.py
-import os
+# ───────────────────────────────────────────────────────────────
+import os, ssl, logging
 import numpy as np
 from PIL import Image
-import logging
 import imgaug.augmenters as iaa
-import ssl
-from sklearn.model_selection import GroupShuffleSplit, GridSearchCV, GroupKFold
+from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
+
 from config import C_PATH, CCR_PATH, TEST_SIZE, RANDOM_STATE
-import sys
 
-# logging.basicConfig(
-#     filename='app.log',  # Log file name
-#     level=logging.INFO,  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-#     format='%(asctime)s - %(levelname)s - %(message)s'  # Log format
-# )
-# # Redirect print statements to the log file
-# class LoggerWriter:
-#     def __init__(self, logger):
-#         self.logger = logger
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-#     def write(self, message):
-#         if message.strip():  # Avoid logging empty lines
-#             self.logger.info(message.strip())
+EXTS = (".png", ".jpg", ".jpeg", ".bmp")
 
-#     def flush(self):
-#         pass  # No need to implement for this example
-
-# sys.stdout = LoggerWriter(logging)  # Redirect print() to logging
-
-
-# Augmentation pipeline
 augmentation_pipeline = iaa.Sequential([
-    iaa.Fliplr(0.5),  # Horizontal flip
-    iaa.Flipud(0.5),  # Vertical flip
-    iaa.Affine(rotate=(-20, 20)),  # Rotation
-    iaa.Multiply((0.8, 1.2)),  # Brightness adjustment
-    iaa.GaussianBlur(sigma=(0.0, 1.0)),  # Blur
-    iaa.MultiplySaturation((0.5, 1.5)),  # Saturation adjustment
-    iaa.ElasticTransformation(alpha=(0, 5.0), sigma=0.25),  # Elastic deformations
-    iaa.AdditiveGaussianNoise(scale=(0, 0.05 * 255)),  # Add Gaussian noise
+    iaa.Fliplr(0.5), iaa.Flipud(0.5),
+    iaa.Affine(rotate=(-20, 20)),
+    iaa.Multiply((0.8, 1.2)),
+    iaa.GaussianBlur(sigma=(0.0, 1.0)),
+    iaa.MultiplySaturation((0.5, 1.5)),
+    iaa.ElasticTransformation(alpha=(0, 5.0), sigma=0.25),
+    iaa.AdditiveGaussianNoise(scale=(0, 0.05 * 255)),
 ])
 
-def count_images_in_folder(folder):
+# ───────────────────────────────────────────────────────────────
+def count_images_in_folder(folder: str) -> dict[str, int]:
+    """Return {animal_id : #original_tiles} (aug_*.png excluded)."""
     counts = {}
-    for subfolder in os.listdir(folder):
-        subfolder_path = os.path.join(folder, subfolder)
-        if os.path.isdir(subfolder_path):
-            images = [img for img in os.listdir(subfolder_path) if img.endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-            counts[subfolder] = len(images)
+    for animal in sorted(os.listdir(folder)):
+        path = os.path.join(folder, animal)
+        if not os.path.isdir(path):
+            continue
+        n = 0
+        for root, _, files in os.walk(path):
+            n += sum(
+                f.lower().endswith(EXTS) and not f.startswith("aug_")
+                for f in files
+            )
+        counts[animal] = n
     return counts
 
-def augment_images(folder, current_count, max_images):
-    augmented_images = []
-    images = [os.path.join(folder, img) for img in os.listdir(folder) if img.endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-    while current_count + len(augmented_images) < max_images:
-        img_path = np.random.choice(images)
-        img = Image.open(img_path)
-        img = np.array(img)
-        aug_img = augmentation_pipeline(image=img)
-        augmented_images.append(aug_img)
-        save_path = os.path.join(folder, f"aug_{current_count + len(augmented_images)}.png")
-        Image.fromarray(aug_img).save(save_path)
-    logging.info(f"Completed augmentation in folder '{folder}'. Total images now: {max_images}")
+# ───────────────────────────────────────────────────────────────
+def augment_images(animal_folder: str, curr: int, target: int) -> None:
+    """Augment this animal until it has *target* images."""
+    src = [
+        os.path.join(root, f)
+        for root, _, files in os.walk(animal_folder)
+        for f in files
+        if f.lower().endswith(EXTS) and not f.startswith("aug_")
+    ]
+    if not src:
+        logging.warning("No source images in %s", animal_folder)
+        return
 
+    next_idx = curr + 1
+    while curr < target:
+        img_path = np.random.choice(src)
+        with Image.open(img_path) as im:
+            aug = augmentation_pipeline(image=np.array(im))
+
+        save_dir = os.path.dirname(img_path)
+        Image.fromarray(aug).save(os.path.join(save_dir, f"aug_{next_idx}.png"))
+
+        curr += 1
+        next_idx += 1
+    logging.info("Augmented %s → %d files", animal_folder, target)
+
+# ───────────────────────────────────────────────────────────────
+def _collect_paths_and_groups(base: str, prefix: str):
+    paths, groups = [], []
+    for animal in os.listdir(base):
+        # -------------------------------------------------------
+        animal_id = animal.lstrip("C")          # "C1" -> "1", "1" stays "1"
+        # -------------------------------------------------------
+        for root, _, files in os.walk(os.path.join(base, animal)):
+            for f in files:
+                if f.lower().endswith(EXTS):
+                    paths.append(os.path.join(root, f))
+                    # ------------------------------------------
+                    groups.append(f"{prefix}_{animal_id}")
+                    # ------------------------------------------
+    return paths, groups
+
+# ───────────────────────────────────────────────────────────────
 def load_data():
-    c_counts = count_images_in_folder(C_PATH)
-    ccr_counts = count_images_in_folder(CCR_PATH)
-    print(f"C c_counts: {c_counts}")
-    print(f"CR ccr_counts: {ccr_counts}")
+    # 1) count original tiles
+    ctl_counts = count_images_in_folder(C_PATH)
+    crc_counts = count_images_in_folder(CCR_PATH)
+    logging.info("Control counts : %s", ctl_counts)
+    logging.info("CRC counts     : %s", crc_counts)
 
-    logging.info(f"C c_counts: {c_counts}")
-    logging.info(f"CR ccr_counts: {ccr_counts}")
+    max_tiles = max((*ctl_counts.values(), *crc_counts.values()))
 
-    max_images = max(list(c_counts.values()) + list(ccr_counts.values()))
+    # 2) augment up to max_tiles
+    for a, n in ctl_counts.items():
+        if n < max_tiles:
+            augment_images(os.path.join(C_PATH, a), n, max_tiles)
+    for a, n in crc_counts.items():
+        if n < max_tiles:
+            augment_images(os.path.join(CCR_PATH, a), n, max_tiles)
 
-    # Apply augmentation
-    for animal, count in c_counts.items():
-        if count < max_images:
-            augment_images(os.path.join(C_PATH, animal), count, max_images)
-        else:
-            logging.info(f"No augmentation needed for folder '{animal}' in C group (image count: {count})")
+    # 3) collect paths / labels / groups
+    ctl_paths, ctl_groups = _collect_paths_and_groups(C_PATH,  "C")
+    crc_paths, crc_groups = _collect_paths_and_groups(CCR_PATH, "CRC")
 
-    for animal, count in ccr_counts.items():
-        if count < max_images:
-            augment_images(os.path.join(CCR_PATH, animal), count, max_images)
-        else:
-            logging.info(f"No augmentation needed for folder '{animal}' in CCR group (image count: {count})")
+    paths   = ctl_paths + crc_paths
+    groups  = np.array(ctl_groups + crc_groups)
+    labels  = np.array([0]*len(ctl_paths) + [1]*len(crc_paths))
 
-    # Load image paths and labels
-    def get_image_paths_and_groups(base_path):
-        image_paths = []
-        groups = []
-        for animal in os.listdir(base_path):
-            animal_folder = os.path.join(base_path, animal)
-            if os.path.isdir(animal_folder):
-                for img_file in os.listdir(animal_folder):
-                    if img_file.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
-                        image_paths.append(os.path.join(animal_folder, img_file))
-                        groups.append(animal)
-        return image_paths, groups
-
-    ssl._create_default_https_context = ssl._create_unverified_context
-    c_image_paths, c_groups = get_image_paths_and_groups(C_PATH)
-    ccr_image_paths, ccr_groups = get_image_paths_and_groups(CCR_PATH)
-
-    image_paths = c_image_paths + ccr_image_paths
-    groups = np.array(c_groups + ccr_groups)
-    labels = np.array([0] * len(c_image_paths) + [1] * len(ccr_image_paths))
-
-    # Split data using GroupShuffleSpli 0.2
+    # 4) mixed-class hold-out split (25 %)
+    
+# 4) mixed-class hold-out split (25%)
     gss = GroupShuffleSplit(test_size=0.25, n_splits=1, random_state=42)
-    train_idx, test_idx = next(gss.split(image_paths, labels, groups=groups))
-    train_images = [image_paths[i] for i in train_idx]
-    train_labels = labels[train_idx]
-    train_groups = groups[train_idx]
-    test_images = [image_paths[i] for i in test_idx]
-    test_labels = labels[test_idx]
-    test_groups = groups[test_idx]
+    for tr_idx, te_idx in gss.split(paths, labels, groups):
+        # stop as soon as the test set has both classes
+        if len(np.unique(labels[te_idx])) == 2:
+            break
+    else:
+        raise RuntimeError("Could not draw mixed-class test set")
+    
+    # cv_holdout = GroupShuffleSplit(test_size=0.25, n_splits=1, random_state=42)
+    # for tr_idx, te_idx in gss.split(paths, labels, groups):
+    #     if len(np.unique(labels[te_idx])) == 2:
+    #         break
+    # else:
+    #     raise RuntimeError("Could not draw mixed-class test set")
 
+    # tr_idx, te_idx = next(
+    #     cv_holdout.split(paths, labels, groups)
+    # )
+    
+    RNG = np.random.RandomState(42)
 
-    # Verification step: Check if there is any overlap of animals between train and test
-    train_animals = set(train_groups)
-    test_animals = set(test_groups)
+    ctrl_animals = np.unique(groups[labels == 0])
+    crc_animals  = np.unique(groups[labels == 1])
 
-    if train_animals & test_animals:  # If intersection is not empty, overlap exists
-        raise ValueError("Overlap between training and test animals detected!")
-    print("Data splited 80/20...")
+    # force exactly 1 control + 3 CRC
+    test_ctrl = RNG.choice(ctrl_animals, size=2, replace=False)
+    test_crc  = RNG.choice(crc_animals,  size=2, replace=False)
 
-    # logging.info(f"Train animals: {train_groups}")
-    # logging.info(f"Test animals: {test_groups}")
-    print("Train animals...")
-    print(train_animals)
-    print("Test animals...")
-    print(test_animals)
-    print("Train groups...")
-    print(train_groups)
-    print("Test grouos...")
-    print(test_groups)
-    # print("Train images...")
-    # print(train_images)
-    # print("Test images...")
-    # print(test_images)
-    print("Test labels...")
-    print(test_labels)
-    print("Train labels...")
-    print(train_labels)
+    test_groups = set(np.concatenate([test_ctrl, test_crc]))
+
+    test_idx  = [i for i, g in enumerate(groups) if g in test_groups]
+    train_idx = [i for i in range(len(groups)) if i not in test_idx]
     
 
-    # print(train_images)
-    # print(test_images)
+    # # 5) organise outputs
+    # train_paths  = [paths[i] for i in tr_idx]
+    # test_paths   = [paths[i] for i in te_idx]
+    # train_groups = groups[tr_idx]
+    # test_groups  = groups[te_idx]
+    # train_labels = labels[tr_idx]
+    # test_labels  = labels[te_idx]
+    
+    train_paths  = [paths[i] for i in train_idx]
+    test_paths   = [paths[i] for i in test_idx]
+    train_labels = labels[train_idx]
+    test_labels  = labels[test_idx]
+    train_groups = groups[train_idx]
+    test_groups  = groups[test_idx]
 
-    return train_images, train_labels, train_groups, test_images, test_labels, test_groups
+    # 6) log split summary
+    logging.info("Train animals : %s", sorted(set(train_groups)))
+    logging.info("Test  animals : %s", sorted(set(test_groups)))
+    logging.info("Train label counts : %s", np.bincount(train_labels))
+    logging.info("Test  label counts : %s", np.bincount(test_labels))
+
+    return (train_paths,  train_labels, train_groups,
+            test_paths,   test_labels,  test_groups)

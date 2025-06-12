@@ -20,6 +20,15 @@ from sklearn.preprocessing import StandardScaler
 from config import IMAGES_SIZE_MODELS
 
 
+from skimage import io, color, morphology, img_as_ubyte
+from skimage.color import rgb2hed
+from skimage.feature.texture import graycomatrix, graycoprops
+from skimage.morphology import (
+    opening, closing,
+    area_opening, area_closing,
+    reconstruction, disk
+)
+
 def getPreprocess_input(model_name):
     if model_name == "resnet50":
         return resnet_preprocess
@@ -63,6 +72,242 @@ def extract_cnn_features(image_paths, model_name):
         features.append(feature.flatten())
     return np.array(features)
 
+
+def compute_full_granulometry(
+    image: np.ndarray,
+    radii: list[int] = list(range(1, 51))) -> np.ndarray:
+    """
+    Compute multiple granulometry descriptors on a 2D uint8 image.
+    Toggle each block by commenting/uncommenting; by default only BinAC is active.
+
+    Descriptors:
+      - GL Opening (gray-level opening)
+      - GL Closing (gray-level closing)
+      - BinAO    (binary area opening)
+      - BinAC    (binary area closing) **default, as paper’s best**
+      - GL SC    (gray-level structural closing)
+
+    Returns
+    -------
+    feats : 1D float array
+        Concatenated descriptors in the order listed above.
+    """
+    feats = []
+    img = image.astype(np.float32)
+
+    # 1) Gray‐level opening (GL Opening)
+    # gl_open = []
+    # for r in radii:
+    #     gl_op = opening(img, disk(r)).astype(np.float32)
+    #     gl_open.append(np.sum(img) - np.sum(gl_op))
+    # feats.extend(gl_open)
+
+    # 2) Gray‐level closing (GL Closing)
+    # gl_close = []
+    # for r in radii:
+    #     gl_cl = closing(img, disk(r)).astype(np.float32)
+    #     gl_close.append(np.sum(gl_cl) - np.sum(img))
+    # feats.extend(gl_close)
+
+    # 3) Binary area opening (BinAO)
+    # bin_ao = []
+    # mask = (image > 0)
+    # for area in radii:
+    #     ao = area_opening(mask, area_threshold=area)
+    #     bin_ao.append(np.sum(mask) - np.sum(ao))
+    # feats.extend(bin_ao)
+
+    # 4) Binary area closing (BinAC)  <--- PAPER’S BEST
+    bin_ac = []
+    mask = (image > 0)
+    for area in radii:
+        ac = area_closing(mask, area_threshold=area)
+        bin_ac.append(np.sum(ac))
+    feats.extend(bin_ac)
+
+    # 5) Gray‐level structural closing (GL SC)
+    # gl_sc = []
+    # for r in radii:
+    #     sc = closing(img, disk(r)).astype(np.float32)
+    #     gl_sc.append(np.sum(sc) - np.sum(img))
+    # feats.extend(gl_sc)
+
+    return np.array(feats, dtype=float)
+
+# --------------------------------------------------------------
+# Hand-crafted: Haralick texture + morphological granulometry
+# --------------------------------------------------------------
+
+
+from skimage.morphology import (
+    opening, closing,
+    area_opening, area_closing,
+    reconstruction, disk
+)
+import numpy as np
+
+def compute_full_granulometry1(image: np.ndarray,
+                              radii: list[int] = list(range(1, 51))
+                             ) -> np.ndarray:
+    """
+    Compute the 6 granulometry signatures (structural, reconstruction,
+    area) for both opening and closing, in gray‐level and binary form.
+
+    Returns a 1D array of length 6 ops × 2 variants × len(radii).
+    Order is:
+      [Γ, Γᵦ, Γ_rec, Γᵦ,rec, Γ_area, Γᵦ,area,
+       Φ, Φᵦ, Φ_rec, Φᵦ,rec, Φ_area, Φᵦ,area] each over radii.
+    """
+    img = image.astype(np.float32)
+    feats = []
+
+    # helper to binarize a residual
+    def binarize(res):
+        return (res > 0).astype(np.float32)
+
+    # ---- OPENINGS ----
+    prev = img.copy()
+    for r in radii:
+        selem = disk(r)
+
+        # 1) Structural opening
+        opened = opening(img, selem).astype(np.float32)
+        resid = img - opened
+        feats.append(resid.sum())               # Γ (gray)
+        feats.append(binarize(resid).sum())     # Γᵦ (binary)
+
+        # 2) Opening by reconstruction
+        seed = opened
+        rec = reconstruction(seed, img, method='dilation').astype(np.float32)
+        resid_rec = img - rec
+        feats.append(resid_rec.sum())           # Γ_rec
+        feats.append(binarize(resid_rec).sum()) # Γᵦ,rec
+
+        # 3) Area opening (area threshold = π·r²)
+        area_thresh = np.pi * (r**2)
+        aopen = area_opening(img, area_threshold=area_thresh).astype(np.float32)
+        resid_area = img - aopen
+        feats.append(resid_area.sum())          # Γ_area
+        feats.append(binarize(resid_area).sum())# Γᵦ,area
+
+    # ---- CLOSINGS ----
+    for r in radii:
+        selem = disk(r)
+
+        # 4) Structural closing
+        closed = closing(img, selem).astype(np.float32)
+        resid = closed - img
+        feats.append(resid.sum())               # Φ
+        feats.append(binarize(resid).sum())     # Φᵦ
+
+        # 5) Closing by reconstruction
+        seed = closed
+        rec = reconstruction(seed, img, method='erosion').astype(np.float32)
+        resid_rec = rec - img
+        feats.append(resid_rec.sum())           # Φ_rec
+        feats.append(binarize(resid_rec).sum()) # Φᵦ,rec
+
+        # 6) Area closing
+        aclose = area_closing(img, area_threshold=np.pi*(r**2)).astype(np.float32)
+        resid_area = aclose - img
+        feats.append(resid_area.sum())          # Φ_area
+        feats.append(binarize(resid_area).sum())# Φᵦ,area
+
+    return np.array(feats, dtype=float)
+
+
+def compute_granulometry(image: np.ndarray,
+                         radii: list[int] = [1, 2, 4, 8, 16]) -> np.ndarray:
+    """
+    Compute a granulometry signature by successive openings.
+    
+    Parameters
+    ----------
+    image : 2D uint8
+        Single‐channel image (e.g. hematoxylin channel) to analyze.
+    radii : list of int
+        Structuring element radii for opening.
+    
+    Returns
+    -------
+    1D array of float
+        For each radius r, sum(prev_opened – current_opened),
+        capturing how much “mass” is removed by that scale.
+    """
+    # convert to float so subtraction is safe
+    img = image.astype(np.float32)
+    prev = img.copy()
+    feats = []
+    for r in radii:
+        selem = disk(r)
+        opened = opening(img, selem).astype(np.float32)
+        # how much area/intensity is removed by this opening
+        removal = np.sum(prev) - np.sum(opened)
+        feats.append(removal)
+        prev = opened
+    return np.array(feats, dtype=float)
+
+
+def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
+    """
+    For each image path:
+      - load RGB
+      - convert to HED
+      - normalize each channel → uint8
+      - compute Haralick + granulometry (toggleable)
+      - stack into a single feature vector
+    Returns an (N_images x N_features) array.
+    """
+    features = []
+
+    def to_ubyte(chan: np.ndarray) -> np.ndarray:
+        # min–max normalize float channel to [0,1], then to uint8
+        c = chan.astype(np.float32)
+        c = (c - c.min()) / (c.max() - c.min() + 1e-8)
+        return img_as_ubyte(c)
+
+    for path in image_paths:
+        img = np.array(Image.open(path).convert("RGB"))
+        hed = rgb2hed(img)
+
+        # normalize each HED channel
+        hemi  = to_ubyte(hed[..., 0])  # hematoxylin
+        eosin = to_ubyte(hed[..., 1])  # eosin
+        dab   = to_ubyte(hed[..., 2])  # DAB
+
+           # --- Haralick on HEMI ---
+        glcm_he = graycomatrix(hemi,
+                               distances=[1],
+                               angles=[0],
+                               levels=256,
+                               symmetric=True,
+                               normed=True)
+        har_hemi = [graycoprops(glcm_he, prop)[0,0]
+                    for prop in ("contrast","energy","homogeneity","correlation")]
+
+        # --- Haralick on EOSIN (optional) ---
+        glcm_eo = graycomatrix(eosin, distances=[1], angles=[0], levels=256,
+                               symmetric=True, normed=True)
+        har_eosin = [graycoprops(glcm_eo, p)[0,0]
+                     for p in ("contrast","energy","homogeneity","correlation")]
+
+        #--- Granulometry on HEMI ---
+        gran_hemi  = compute_full_granulometry(hemi,  radii=radii)
+
+        # --- Granulometry on EOSIN  (optional) ---
+        #gran_eosin = compute_granulometry(eosin, radii=radii)
+
+        # --- Combine whichever you like ---
+        feat = np.hstack([gran_hemi, har_hemi, har_eosin])
+        # feat = np.hstack([har_hemi, har_eosin, gran_hemi, gran_eosin])
+
+
+        # For now, just placeholder—uncomment above to use real features:
+        
+        features.append(feat)
+
+    return np.vstack(features)
+p
 def apply_pca(train_features, test_features, n_components):
     print("Applying PCA")
 
