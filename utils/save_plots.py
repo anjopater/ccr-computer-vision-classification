@@ -9,6 +9,8 @@ from sklearn.metrics import confusion_matrix
 import umap
 from matplotlib.patches import Patch
 from sklearn.inspection import DecisionBoundaryDisplay
+from sklearn.metrics import roc_curve, auc
+
 
 def plot_and_save_pca(X_pca, labels, title, filename):
     plt.figure(figsize=(10, 7))
@@ -487,3 +489,53 @@ def plot_and_save_svm_kernel(X, y_true, y_pred, title, filename, output_dir, mod
     plt.close()
     
     print(f"Plot saved at: {plot_path}")
+    
+    
+def plot_and_save_roc(y_true, y_score, title, filename, output_dir):
+    fpr, tpr, _ = roc_curve(y_true, y_score)
+    roc_auc = auc(fpr, tpr)
+
+    plt.figure(figsize=(4, 4))
+    plt.plot(fpr, tpr, lw=2, label=f"AUC = {roc_auc:.3f}")
+    plt.plot([0, 1], [0, 1], linestyle="--", lw=1)
+    plt.xlabel("False-Positive Rate")
+    plt.ylabel("True-Positive Rate")
+    plt.title(title)
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, filename), dpi=300)
+    plt.close()
+
+    return roc_auc
+
+def plot_multiple_roc(y_true, score_dict, title, filename, output_dir):
+    """
+    Draw one ROC plot with many curves.
+
+    Parameters
+    ----------
+    y_true : array-like shape (n_samples,)
+        Ground-truth binary labels (0/1).
+    score_dict : dict[str, array-like]
+        Model name → positive-class probability for each sample.
+    """
+    plt.figure(figsize=(5, 5))
+
+    # diagonal
+    plt.plot([0, 1], [0, 1], ls="--", lw=1, label="Chance")
+
+    for name, scores in score_dict.items():
+        fpr, tpr, _ = roc_curve(y_true, scores)
+        roc_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, lw=1.8, label=f"{name} (AUC {roc_auc:.3f})")
+
+    plt.xlabel("False-Positive Rate")
+    plt.ylabel("True-Positive Rate")
+    plt.title(title)
+    plt.legend(loc="lower right", fontsize="x-small")
+    plt.tight_layout()
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, filename), dpi=300)
+    plt.close()

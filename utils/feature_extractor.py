@@ -14,6 +14,7 @@ from tensorflow.keras import layers, models
 import warnings
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.feature_selection import VarianceThreshold
+import pandas as pd
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -138,6 +139,55 @@ def compute_full_granulometry(
 # Hand-crafted: Haralick texture + morphological granulometry
 # --------------------------------------------------------------
 
+# ───────────────────────────────────────────────────────────────────────────────
+#  Low-level helpers (copiados do seu notebook) ────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────────
+
+from scipy import ndimage as ndi
+from scipy.spatial import cKDTree
+from skimage import (color, exposure, filters, measure, morphology, util,
+                     feature, segmentation)
+def hematoxylin_channel(rgb):
+    """RGB → uint8 (0-255) onde núcleos são escuros/negativos → invertidos p/ brillantes."""
+    rgb_f   = util.img_as_float(rgb[...,:3])
+    h_raw   = color.rgb2hed(rgb_f)[..., 0]           # núcleos → negativo
+    h_inv   = -h_raw                                 # núcleos → positivo
+    low, hi = np.percentile(h_inv, (1, 99))
+    h_clip  = np.clip(h_inv, low, hi)
+    return exposure.rescale_intensity(
+                h_clip, in_range=(low, hi), out_range=(0, 255)
+           ).astype(np.uint8)
+
+def smart_nuclei_mask(h, min_size=64):
+    t    = filters.threshold_otsu(h)
+    side = [h < t, h > t]           # escuro  vs  claro
+    choose = max(side, key=lambda m: measure.label(
+                 morphology.remove_small_objects(m, min_size)).max())
+    mask = morphology.remove_small_objects(choose, min_size)
+    mask = ndi.binary_fill_holes(mask)
+    return mask
+
+def tissue_mask(rgb, thresh=0.9):
+    gray = color.rgb2gray(util.img_as_float(rgb))
+    mask = gray < thresh
+    return morphology.remove_small_holes(mask, area_threshold=10_000)
+
+def split_touching(mask, min_distance=9):
+    dist   = ndi.distance_transform_edt(mask)
+    coords = feature.peak_local_max(dist, min_distance=min_distance, labels=mask)
+    markers = np.zeros_like(mask, int)
+    markers[tuple(coords.T)] = np.arange(1, coords.shape[0] + 1)
+    labels  = segmentation.watershed(-dist, markers, mask=mask)
+    return labels
+
+def remove_giant(labels, max_size=7_000):
+    areas = np.bincount(labels.ravel())
+    too_big = np.where(areas > max_size)[0]
+    for lbl in too_big:
+        labels[labels == lbl] = 0
+    return labels
+# ───────────────────────────────────────────────────────────────────────────────
+
 
 from skimage.morphology import (
     opening, closing,
@@ -247,6 +297,76 @@ def compute_granulometry(image: np.ndarray,
         prev = opened
     return np.array(feats, dtype=float)
 
+def feature_extractor(rgb,
+                      min_obj=30,
+                      max_obj=7_000,
+                      summary=True):
+    """
+    Segmenta núcleos em um tile RGB de H&E, devolve:
+      • df_cells  – DataFrame com regionprops por núcleo
+      • vec       – vetor de features agregadas (média, std, etc.)  (se summary=True)
+
+    Parameters
+    ----------
+    rgb : ndarray uint8  (H×W×3)
+    min_obj : int        (px²)  remove detritos menores
+    max_obj : int        (px²)  descarta rótulos enormes (gordura / borda)
+    summary : bool       gera ou não vetor slide-level
+
+    Returns
+    -------
+    df_cells : pandas.DataFrame
+    vec      : dict  |  None
+    """
+    # 1. H-channel  &  máscara esperta
+    h      = hematoxylin_channel(rgb)
+    mask   = smart_nuclei_mask(h, min_size=min_obj)
+    mask  &= tissue_mask(rgb)
+
+    # 2. Watershed + limpeza
+    labels = split_touching(mask)
+    labels = morphology.remove_small_objects(labels, min_obj)
+    labels = remove_giant(labels, max_size=max_obj)
+    labels[~tissue_mask(rgb)] = 0
+
+    # 3. Regionprops por núcleo
+    props = measure.regionprops_table(
+                labels,
+                intensity_image=h,
+                properties=('area', 'eccentricity', 'solidity',
+                            'major_axis_length', 'minor_axis_length',
+                            'perimeter', 'mean_intensity', 'centroid')
+            )
+    df_cells = pd.DataFrame(props)
+
+    if not summary:
+        return df_cells, None
+
+    # 4. Slide-level summary vector -------------------------------------------
+    feat = {}
+    for col in df_cells.columns:
+        if col.startswith('centroid'):
+            continue
+        v = df_cells[col].values.astype(float)
+        feat[f'{col}_mean'] = v.mean()
+        feat[f'{col}_std']  = v.std(ddof=1)
+        feat[f'{col}_p10']  = np.percentile(v, 10)
+        feat[f'{col}_p90']  = np.percentile(v, 90)
+
+    # densidade de núcleos
+    tissue_px = tissue_mask(rgb).sum()
+    feat['nuclei_per_1kpx'] = len(df_cells) / (tissue_px / 1_000 + 1e-6)
+
+    # distância ao vizinho mais próximo
+    if len(df_cells) >= 2:
+        kd  = cKDTree(df_cells[['centroid-0', 'centroid-1']])
+        nn  = kd.query(df_cells[['centroid-0','centroid-1']], k=2)[0][:,1]
+        feat['nn_median'] = np.median(nn)
+    else:
+        feat['nn_median'] = np.nan
+
+    return df_cells, feat
+
 
 def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
     """
@@ -276,14 +396,14 @@ def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
         dab   = to_ubyte(hed[..., 2])  # DAB
 
            # --- Haralick on HEMI ---
-        glcm_he = graycomatrix(hemi,
-                               distances=[1],
-                               angles=[0],
-                               levels=256,
-                               symmetric=True,
-                               normed=True)
-        har_hemi = [graycoprops(glcm_he, prop)[0,0]
-                    for prop in ("contrast","energy","homogeneity","correlation")]
+        # glcm_he = graycomatrix(hemi,
+        #                        distances=[1],
+        #                        angles=[0],
+        #                        levels=256,
+        #                        symmetric=True,
+        #                        normed=True)
+        # har_hemi = [graycoprops(glcm_he, prop)[0,0]
+                    # for prop in ("contrast","energy","homogeneity","correlation")]
 
         # --- Haralick on EOSIN (optional) ---
         glcm_eo = graycomatrix(eosin, distances=[1], angles=[0], levels=256,
@@ -292,22 +412,27 @@ def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
                      for p in ("contrast","energy","homogeneity","correlation")]
 
         #--- Granulometry on HEMI ---
-        gran_hemi  = compute_full_granulometry(hemi,  radii=radii)
+        # gran_hemi  = compute_full_granulometry(hemi,  radii=radii)
 
         # --- Granulometry on EOSIN  (optional) ---
         #gran_eosin = compute_granulometry(eosin, radii=radii)
 
         # --- Combine whichever you like ---
-        feat = np.hstack([gran_hemi, har_hemi, har_eosin])
+        # feat = np.hstack([har_hemi, har_eosin])
         # feat = np.hstack([har_hemi, har_eosin, gran_hemi, gran_eosin])
 
 
         # For now, just placeholder—uncomment above to use real features:
         
-        features.append(feat)
+        # features.append(feat)
+        
+        _, nuclei_vec = feature_extractor(img, min_obj=30, max_obj=7000, summary=True)
+        nuclei_vec = pd.Series(nuclei_vec).values    # dict → 1-D array
+        vec = np.hstack([nuclei_vec, har_eosin]).astype(np.float32)
+        features.append(vec)
 
     return np.vstack(features)
-p
+
 def apply_pca(train_features, test_features, n_components):
     print("Applying PCA")
 

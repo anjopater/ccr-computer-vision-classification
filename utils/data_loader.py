@@ -66,20 +66,43 @@ def augment_images(animal_folder: str, curr: int, target: int) -> None:
     logging.info("Augmented %s → %d files", animal_folder, target)
 
 # ───────────────────────────────────────────────────────────────
-def _collect_paths_and_groups(base: str, prefix: str):
+# ───────────────────────────────────────────────────────────────
+def _collect_paths_and_groups(
+        base: str,
+        prefix: str,
+        exclude_word: str | None = None      # ← NOVO (ex.: "mask", "thumb")
+    ):
+    """
+    Percorre todas as subpastas de *base* e devolve duas listas paralelas:
+    • paths  – caminhos das imagens cujo sufixo está em EXTS
+    • groups – rótulos de grupo (prefix + animal_id)
+
+    Se *exclude_word* for passado, qualquer arquivo cujo nome contenha essa
+    palavra (case-insensitive) será ignorado.
+    """
     paths, groups = [], []
+
     for animal in os.listdir(base):
-        # -------------------------------------------------------
-        animal_id = animal.lstrip("C")          # "C1" -> "1", "1" stays "1"
-        # -------------------------------------------------------
+        animal_id = animal.lstrip("C")       # "C1" -> "1", "1" fica "1"
+
         for root, _, files in os.walk(os.path.join(base, animal)):
             for f in files:
-                if f.lower().endswith(EXTS):
-                    paths.append(os.path.join(root, f))
-                    # ------------------------------------------
-                    groups.append(f"{prefix}_{animal_id}")
-                    # ------------------------------------------
+                fname = f.lower()
+
+                # ——— filtro de extensão ———
+                if not fname.endswith(EXTS):
+                    continue
+
+                # ——— filtro de exclusão ———
+                if exclude_word and exclude_word.lower() not in fname:
+                    continue
+
+                print(fname)
+                paths.append(os.path.join(root, f))
+                groups.append(f"{prefix}_{animal_id}")
+
     return paths, groups
+
 
 # ───────────────────────────────────────────────────────────────
 def load_data():
@@ -92,16 +115,16 @@ def load_data():
     max_tiles = max((*ctl_counts.values(), *crc_counts.values()))
 
     # 2) augment up to max_tiles
-    for a, n in ctl_counts.items():
-        if n < max_tiles:
-            augment_images(os.path.join(C_PATH, a), n, max_tiles)
-    for a, n in crc_counts.items():
-        if n < max_tiles:
-            augment_images(os.path.join(CCR_PATH, a), n, max_tiles)
+    # for a, n in ctl_counts.items():
+    #     if n < max_tiles:
+    #         augment_images(os.path.join(C_PATH, a), n, max_tiles)
+    # for a, n in crc_counts.items():
+    #     if n < max_tiles:
+    #         augment_images(os.path.join(CCR_PATH, a), n, max_tiles)
 
     # 3) collect paths / labels / groups
-    ctl_paths, ctl_groups = _collect_paths_and_groups(C_PATH,  "C")
-    crc_paths, crc_groups = _collect_paths_and_groups(CCR_PATH, "CRC")
+    ctl_paths, ctl_groups = _collect_paths_and_groups(C_PATH,  "C", "_")
+    crc_paths, crc_groups = _collect_paths_and_groups(CCR_PATH, "CRC","_")
 
     paths   = ctl_paths + crc_paths
     groups  = np.array(ctl_groups + crc_groups)

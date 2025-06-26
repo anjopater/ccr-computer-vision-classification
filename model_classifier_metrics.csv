@@ -1,0 +1,8 @@
+Model,Classifier,PCA Components,Best Parameters,Accuracy,Precision (macro),Recall (macro),F1-Score (macro)
+MorphoTx,GaussianNB,N/A,"{""clf__var_smoothing"": 1e-09}",0.7625,0.8389830508474576,0.7625,0.7483026991223712
+MorphoTx,KNN,N/A,"{""clf__n_neighbors"": 7, ""clf__p"": 2, ""clf__weights"": ""distance""}",0.7000,0.702020202020202,0.7,0.6992481203007519
+MorphoTx,Logistic Regression,N/A,"{""clf__C"": 0.1, ""clf__max_iter"": 500, ""clf__penalty"": ""l2"", ""clf__solver"": ""lbfgs""}",0.7500,0.8333333333333333,0.75,0.7333333333333334
+MorphoTx,MLP,N/A,"{""clf__activation"": ""relu"", ""clf__alpha"": 0.0001, ""clf__hidden_layer_sizes"": [128, 64, 32], ""clf__learning_rate"": ""constant"", ""clf__max_iter"": 200, ""clf__solver"": ""sgd""}",0.7500,0.8333333333333333,0.75,0.7333333333333334
+MorphoTx,MLP2,N/A,"{""clf__activation"": ""logistic"", ""clf__alpha"": 0.0001, ""clf__hidden_layer_sizes"": [64], ""clf__learning_rate"": ""constant"", ""clf__max_iter"": 200, ""clf__solver"": ""adam""}",0.7375,0.8278688524590163,0.7375,0.7180735022654807
+MorphoTx,Random Forest,N/A,"{""clf__max_depth"": null, ""clf__min_samples_leaf"": 1, ""clf__min_samples_split"": 2, ""clf__n_estimators"": 200}",0.7625,0.7707930367504836,0.7625,0.7606676113997796
+MorphoTx,SVM,N/A,"{""clf__C"": 1, ""clf__gamma"": ""scale"", ""clf__kernel"": ""sigmoid""}",0.7625,0.7639849151477058,0.7625,0.7621655452980755

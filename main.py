@@ -19,10 +19,10 @@ from sklearn.exceptions import ConvergenceWarning
 
 from config                  import PCA_COMPONENTS, MODELS, RESULTS_FILE
 from utils.data_loader       import load_data
-from utils.feature_extractor import extract_cnn_features, extract_haralick_granulo
+from utils.feature_extractor import extract_cnn_features, extract_haralick_granulo, feature_extractor
 from utils.evaluator         import get_classifiers
 from utils.logger            import save_results
-from utils.save_plots        import plot_and_save_confusion_matrix, plot_fold_animal_heatmap
+from utils.save_plots        import plot_and_save_confusion_matrix, plot_fold_animal_heatmap, plot_multiple_roc, plot_and_save_roc
 
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -34,7 +34,7 @@ def main():
     test_imgs,  test_lbl,  test_grp = load_data()
 
     results = {}
-
+    score_dict = {}
     # 2) One pass per feature extractor
     for model_name, model_key in MODELS.items():
         print(f"\n=== Processing extractor: {model_name} ===")
@@ -112,7 +112,13 @@ def main():
 
             # Hold-out evaluation
             y_pred = grid.best_estimator_.predict(X_test)
+            y_score = grid.best_estimator_.predict_proba(X_test)[:, 1]   # ← probability for class 1
+            score_dict[clf_name] = y_score
+
             acc    = accuracy_score(test_lbl, y_pred)
+
+
+     
 
             best_pipelines[clf_name] = grid.best_estimator_
 
@@ -125,12 +131,23 @@ def main():
                 filename="confmat.png",
                 output_dir=out_dir
             )
+            
+                   # ROC curve
+            # in the same place you already calculate disagree/corr matrices
+            all_roc_dir = os.path.join("results", model_name)
+            plot_multiple_roc(
+                test_lbl,
+                score_dict,
+                title=f"All ROC – {model_name}",
+                filename="roc_all_classifiers.png",
+                output_dir=all_roc_dir
+            )
 
             results[model_name][clf_name] = {
                 "test_accuracy"        : f"{acc:.4f}",
                 "best_params"          : grid.best_params_,
                 "classification_report": classification_report(
-                                              test_lbl, y_pred, output_dict=True)
+                                              test_lbl, y_pred, output_dict=True),
             }
             
 
