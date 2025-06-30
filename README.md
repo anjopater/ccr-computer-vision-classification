@@ -76,3 +76,7 @@ Este projeto implementa um pipeline de aprendizado de máquina para detecção d
 - **Handcrafted**: modifique a funcão `extract_handcrafted_features` para testar extratores de features individuais
 
 
+## Testar End to End pipeline
+
+Copiar o conteunido do archivo `jupyter_notebook_CNN_pipeline.py` num notebook
+
