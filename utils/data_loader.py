@@ -5,8 +5,9 @@ import numpy as np
 from PIL import Image
 import imgaug.augmenters as iaa
 from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
+import os, joblib
 
-from config import C_PATH, CCR_PATH, TEST_SIZE, RANDOM_STATE
+from config import C_PATH, CCR_PATH
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -93,9 +94,9 @@ def _collect_paths_and_groups(
                 if not fname.endswith(EXTS):
                     continue
 
-                # ——— filtro de exclusão ———
-                if exclude_word and exclude_word.lower() not in fname:
-                    continue
+                # # ——— filtro de exclusão ———
+                # if exclude_word and exclude_word.lower() not in fname:
+                #     continue
 
                 print(fname)
                 paths.append(os.path.join(root, f))
@@ -129,8 +130,6 @@ def load_data():
     paths   = ctl_paths + crc_paths
     groups  = np.array(ctl_groups + crc_groups)
     labels  = np.array([0]*len(ctl_paths) + [1]*len(crc_paths))
-
-    # 4) mixed-class hold-out split (25 %)
     
 # 4) mixed-class hold-out split (25%)
     gss = GroupShuffleSplit(test_size=0.25, n_splits=1, random_state=42)
@@ -141,23 +140,12 @@ def load_data():
     else:
         raise RuntimeError("Could not draw mixed-class test set")
     
-    # cv_holdout = GroupShuffleSplit(test_size=0.25, n_splits=1, random_state=42)
-    # for tr_idx, te_idx in gss.split(paths, labels, groups):
-    #     if len(np.unique(labels[te_idx])) == 2:
-    #         break
-    # else:
-    #     raise RuntimeError("Could not draw mixed-class test set")
-
-    # tr_idx, te_idx = next(
-    #     cv_holdout.split(paths, labels, groups)
-    # )
-    
     RNG = np.random.RandomState(42)
 
     ctrl_animals = np.unique(groups[labels == 0])
     crc_animals  = np.unique(groups[labels == 1])
 
-    # force exactly 1 control + 3 CRC
+    # force exactly 2 control + 2 CRC
     test_ctrl = RNG.choice(ctrl_animals, size=2, replace=False)
     test_crc  = RNG.choice(crc_animals,  size=2, replace=False)
 
@@ -166,15 +154,7 @@ def load_data():
     test_idx  = [i for i, g in enumerate(groups) if g in test_groups]
     train_idx = [i for i in range(len(groups)) if i not in test_idx]
     
-
     # # 5) organise outputs
-    # train_paths  = [paths[i] for i in tr_idx]
-    # test_paths   = [paths[i] for i in te_idx]
-    # train_groups = groups[tr_idx]
-    # test_groups  = groups[te_idx]
-    # train_labels = labels[tr_idx]
-    # test_labels  = labels[te_idx]
-    
     train_paths  = [paths[i] for i in train_idx]
     test_paths   = [paths[i] for i in test_idx]
     train_labels = labels[train_idx]
@@ -190,3 +170,22 @@ def load_data():
 
     return (train_paths,  train_labels, train_groups,
             test_paths,   test_labels,  test_groups)
+    
+    
+# ---------------------------------------------------------
+# Função auxiliar: carrega se existir, senão extrai e salva
+# ---------------------------------------------------------
+def load_or_extract(imgs, cache_file, extractor_func):
+    """
+    imgs          : lista/array de imagens
+    cache_file    : caminho do arquivo .joblib
+    extractor_func: função que extrai as features
+    """
+    if os.path.exists(cache_file):
+        print("✓ Lendo cache:", cache_file)
+        return joblib.load(cache_file)        # devolve ndarray
+    else:
+        print("… Gerando e salvando:", cache_file)
+        feats = extractor_func(imgs)          # extrai features
+        joblib.dump(feats, cache_file)        # salva no disco
+        return feats

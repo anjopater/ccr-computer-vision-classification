@@ -10,6 +10,8 @@ import umap
 from matplotlib.patches import Patch
 from sklearn.inspection import DecisionBoundaryDisplay
 from sklearn.metrics import roc_curve, auc
+from sklearn.manifold import SpectralEmbedding   # Laplacian Eigenmaps
+from sklearn.manifold._t_sne import TSNE   # caminho interno explícito
 
 
 def plot_and_save_pca(X_pca, labels, title, filename):
@@ -40,6 +42,54 @@ def plot_and_save_umap(X_umap, labels, title, filename):
     plt.grid(True)
     plt.savefig(filename)  # Save the plot
     plt.close()  # Close the plot to free memory
+    
+def compute_tsne(
+        X,
+        n_components: int = 2,
+        perplexity: float = 30.0,
+        learning_rate: float | str = "auto",
+        random_state: int = 42,
+    ) -> np.ndarray:
+
+    tsne = TSNE(
+        n_components=n_components,
+        perplexity=perplexity,
+        learning_rate=learning_rate,
+        init="pca",
+        random_state=random_state
+    )
+    return tsne.fit_transform(X)
+    
+def compute_lsde(X, n_components=2, n_neighbors=10, random_state=42):
+    """
+    Calcula um embedding 2-D usando Laplacian Eigenmaps (aka LSDE).
+
+    Parameters
+    ----------
+    X : ndarray (N × d)
+        Matriz de features já escaladas ou brutas.
+    n_components : int
+        Dimensão do espaço projetado. (2 para visualização)
+    n_neighbors : int
+        Número de vizinhos no grafo de adjacência (k-NN).
+    random_state : int
+        Seed para reprodutibilidade.
+
+    Returns
+    -------
+    X_emb : ndarray (N × n_components)
+        Coordenadas projetadas.
+    """
+    # Caso queira escalar aqui dentro:
+    # X = StandardScaler().fit_transform(X)
+    
+    le = SpectralEmbedding(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        affinity="nearest_neighbors",
+        random_state=random_state
+    )
+    return le.fit_transform(X)
 
 def plot_and_save_pca_3d(X_pca, labels, title, filename):
     fig = plt.figure(figsize=(10, 7))
@@ -404,7 +454,7 @@ def plot_fold_animal_heatmap(cv, groups, labels, output_dir):
         )
 
     plt.tight_layout()
-    out_path = os.path.join(output_dir, "cv_elegant_animal_heatmap.png")
+    out_path = os.path.join(output_dir, "cv_animal_group_heatmap.png")
     plt.savefig(out_path, dpi=150)
     plt.close()
     print(f"Saved CV animal-heatmap to {out_path}")

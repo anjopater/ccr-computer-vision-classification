@@ -9,7 +9,8 @@ from tensorflow.keras.applications.inception_v3 import preprocess_input as incep
 from tensorflow.keras.applications.densenet import preprocess_input as densenet_preprocess
 from tensorflow.keras.applications.efficientnet import preprocess_input as efficientnet_preprocess
 from tensorflow.keras.applications.convnext import preprocess_input as convnext_preprocess
-
+import pywt
+from scipy.stats import skew, kurtosis
 from tensorflow.keras import layers, models
 import warnings
 from sklearn.exceptions import ConvergenceWarning
@@ -20,6 +21,9 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from config import IMAGES_SIZE_MODELS
 
+import cv2                           # only for RGB→gray conversion
+from scipy.signal import convolve2d
+from skimage.feature import local_binary_pattern
 
 from skimage import io, color, morphology, img_as_ubyte
 from skimage.color import rgb2hed
@@ -29,6 +33,18 @@ from skimage.morphology import (
     area_opening, area_closing,
     reconstruction, disk
 )
+
+from scipy import ndimage as ndi
+from scipy.spatial import cKDTree
+from skimage import (color, exposure, filters, measure, morphology, util,
+                     feature, segmentation)
+
+from skimage.morphology import (
+    opening, closing,
+    area_opening, area_closing,
+    reconstruction, disk
+)
+import numpy as np
 
 def getPreprocess_input(model_name):
     if model_name == "resnet50":
@@ -73,199 +89,6 @@ def extract_cnn_features(image_paths, model_name):
         features.append(feature.flatten())
     return np.array(features)
 
-
-def compute_full_granulometry(
-    image: np.ndarray,
-    radii: list[int] = list(range(1, 51))) -> np.ndarray:
-    """
-    Compute multiple granulometry descriptors on a 2D uint8 image.
-    Toggle each block by commenting/uncommenting; by default only BinAC is active.
-
-    Descriptors:
-      - GL Opening (gray-level opening)
-      - GL Closing (gray-level closing)
-      - BinAO    (binary area opening)
-      - BinAC    (binary area closing) **default, as paper’s best**
-      - GL SC    (gray-level structural closing)
-
-    Returns
-    -------
-    feats : 1D float array
-        Concatenated descriptors in the order listed above.
-    """
-    feats = []
-    img = image.astype(np.float32)
-
-    # 1) Gray‐level opening (GL Opening)
-    # gl_open = []
-    # for r in radii:
-    #     gl_op = opening(img, disk(r)).astype(np.float32)
-    #     gl_open.append(np.sum(img) - np.sum(gl_op))
-    # feats.extend(gl_open)
-
-    # 2) Gray‐level closing (GL Closing)
-    # gl_close = []
-    # for r in radii:
-    #     gl_cl = closing(img, disk(r)).astype(np.float32)
-    #     gl_close.append(np.sum(gl_cl) - np.sum(img))
-    # feats.extend(gl_close)
-
-    # 3) Binary area opening (BinAO)
-    # bin_ao = []
-    # mask = (image > 0)
-    # for area in radii:
-    #     ao = area_opening(mask, area_threshold=area)
-    #     bin_ao.append(np.sum(mask) - np.sum(ao))
-    # feats.extend(bin_ao)
-
-    # 4) Binary area closing (BinAC)  <--- PAPER’S BEST
-    bin_ac = []
-    mask = (image > 0)
-    for area in radii:
-        ac = area_closing(mask, area_threshold=area)
-        bin_ac.append(np.sum(ac))
-    feats.extend(bin_ac)
-
-    # 5) Gray‐level structural closing (GL SC)
-    # gl_sc = []
-    # for r in radii:
-    #     sc = closing(img, disk(r)).astype(np.float32)
-    #     gl_sc.append(np.sum(sc) - np.sum(img))
-    # feats.extend(gl_sc)
-
-    return np.array(feats, dtype=float)
-
-# --------------------------------------------------------------
-# Hand-crafted: Haralick texture + morphological granulometry
-# --------------------------------------------------------------
-
-# ───────────────────────────────────────────────────────────────────────────────
-#  Low-level helpers (copiados do seu notebook) ────────────────────────────────
-# ───────────────────────────────────────────────────────────────────────────────
-
-from scipy import ndimage as ndi
-from scipy.spatial import cKDTree
-from skimage import (color, exposure, filters, measure, morphology, util,
-                     feature, segmentation)
-def hematoxylin_channel(rgb):
-    """RGB → uint8 (0-255) onde núcleos são escuros/negativos → invertidos p/ brillantes."""
-    rgb_f   = util.img_as_float(rgb[...,:3])
-    h_raw   = color.rgb2hed(rgb_f)[..., 0]           # núcleos → negativo
-    h_inv   = -h_raw                                 # núcleos → positivo
-    low, hi = np.percentile(h_inv, (1, 99))
-    h_clip  = np.clip(h_inv, low, hi)
-    return exposure.rescale_intensity(
-                h_clip, in_range=(low, hi), out_range=(0, 255)
-           ).astype(np.uint8)
-
-def smart_nuclei_mask(h, min_size=64):
-    t    = filters.threshold_otsu(h)
-    side = [h < t, h > t]           # escuro  vs  claro
-    choose = max(side, key=lambda m: measure.label(
-                 morphology.remove_small_objects(m, min_size)).max())
-    mask = morphology.remove_small_objects(choose, min_size)
-    mask = ndi.binary_fill_holes(mask)
-    return mask
-
-def tissue_mask(rgb, thresh=0.9):
-    gray = color.rgb2gray(util.img_as_float(rgb))
-    mask = gray < thresh
-    return morphology.remove_small_holes(mask, area_threshold=10_000)
-
-def split_touching(mask, min_distance=9):
-    dist   = ndi.distance_transform_edt(mask)
-    coords = feature.peak_local_max(dist, min_distance=min_distance, labels=mask)
-    markers = np.zeros_like(mask, int)
-    markers[tuple(coords.T)] = np.arange(1, coords.shape[0] + 1)
-    labels  = segmentation.watershed(-dist, markers, mask=mask)
-    return labels
-
-def remove_giant(labels, max_size=7_000):
-    areas = np.bincount(labels.ravel())
-    too_big = np.where(areas > max_size)[0]
-    for lbl in too_big:
-        labels[labels == lbl] = 0
-    return labels
-# ───────────────────────────────────────────────────────────────────────────────
-
-
-from skimage.morphology import (
-    opening, closing,
-    area_opening, area_closing,
-    reconstruction, disk
-)
-import numpy as np
-
-def compute_full_granulometry1(image: np.ndarray,
-                              radii: list[int] = list(range(1, 51))
-                             ) -> np.ndarray:
-    """
-    Compute the 6 granulometry signatures (structural, reconstruction,
-    area) for both opening and closing, in gray‐level and binary form.
-
-    Returns a 1D array of length 6 ops × 2 variants × len(radii).
-    Order is:
-      [Γ, Γᵦ, Γ_rec, Γᵦ,rec, Γ_area, Γᵦ,area,
-       Φ, Φᵦ, Φ_rec, Φᵦ,rec, Φ_area, Φᵦ,area] each over radii.
-    """
-    img = image.astype(np.float32)
-    feats = []
-
-    # helper to binarize a residual
-    def binarize(res):
-        return (res > 0).astype(np.float32)
-
-    # ---- OPENINGS ----
-    prev = img.copy()
-    for r in radii:
-        selem = disk(r)
-
-        # 1) Structural opening
-        opened = opening(img, selem).astype(np.float32)
-        resid = img - opened
-        feats.append(resid.sum())               # Γ (gray)
-        feats.append(binarize(resid).sum())     # Γᵦ (binary)
-
-        # 2) Opening by reconstruction
-        seed = opened
-        rec = reconstruction(seed, img, method='dilation').astype(np.float32)
-        resid_rec = img - rec
-        feats.append(resid_rec.sum())           # Γ_rec
-        feats.append(binarize(resid_rec).sum()) # Γᵦ,rec
-
-        # 3) Area opening (area threshold = π·r²)
-        area_thresh = np.pi * (r**2)
-        aopen = area_opening(img, area_threshold=area_thresh).astype(np.float32)
-        resid_area = img - aopen
-        feats.append(resid_area.sum())          # Γ_area
-        feats.append(binarize(resid_area).sum())# Γᵦ,area
-
-    # ---- CLOSINGS ----
-    for r in radii:
-        selem = disk(r)
-
-        # 4) Structural closing
-        closed = closing(img, selem).astype(np.float32)
-        resid = closed - img
-        feats.append(resid.sum())               # Φ
-        feats.append(binarize(resid).sum())     # Φᵦ
-
-        # 5) Closing by reconstruction
-        seed = closed
-        rec = reconstruction(seed, img, method='erosion').astype(np.float32)
-        resid_rec = rec - img
-        feats.append(resid_rec.sum())           # Φ_rec
-        feats.append(binarize(resid_rec).sum()) # Φᵦ,rec
-
-        # 6) Area closing
-        aclose = area_closing(img, area_threshold=np.pi*(r**2)).astype(np.float32)
-        resid_area = aclose - img
-        feats.append(resid_area.sum())          # Φ_area
-        feats.append(binarize(resid_area).sum())# Φᵦ,area
-
-    return np.array(feats, dtype=float)
-
-
 def compute_granulometry(image: np.ndarray,
                          radii: list[int] = [1, 2, 4, 8, 16]) -> np.ndarray:
     """
@@ -297,78 +120,176 @@ def compute_granulometry(image: np.ndarray,
         prev = opened
     return np.array(feats, dtype=float)
 
-def feature_extractor(rgb,
-                      min_obj=30,
-                      max_obj=7_000,
-                      summary=True):
+# ────────────────────────────────────────────────────────────────
+# 1)  LPQ  — Local Phase Quantization
+# ----------------------------------------------------------------
+def extract_lpq_features(img, win_size: int = 7, freq: float = 1.0) -> np.ndarray:
     """
-    Segmenta núcleos em um tile RGB de H&E, devolve:
-      • df_cells  – DataFrame com regionprops por núcleo
-      • vec       – vetor de features agregadas (média, std, etc.)  (se summary=True)
-
+    Compute LPQ histogram over the entire image.
+    
     Parameters
     ----------
-    rgb : ndarray uint8  (H×W×3)
-    min_obj : int        (px²)  remove detritos menores
-    max_obj : int        (px²)  descarta rótulos enormes (gordura / borda)
-    summary : bool       gera ou não vetor slide-level
+    img : ndarray
+        Grayscale (H×W) or RGB/BGR (H×W×3).
+    win_size : int
+        Local window size (odd). 7 or 9 are common in texture work.
+    freq : float
+        Central frequency of the short 2-D DFT basis, usually 1.0.
 
     Returns
     -------
-    df_cells : pandas.DataFrame
-    vec      : dict  |  None
+    hist : ndarray, shape (256,)
+        Normalised LPQ code histogram (8-bit code → 256 bins).
     """
-    # 1. H-channel  &  máscara esperta
-    h      = hematoxylin_channel(rgb)
-    mask   = smart_nuclei_mask(h, min_size=min_obj)
-    mask  &= tissue_mask(rgb)
+    # --- 1. preprocess --------------------------------------------------------
+    if img.ndim == 3:                           # RGB → gray
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 2. Watershed + limpeza
-    labels = split_touching(mask)
-    labels = morphology.remove_small_objects(labels, min_obj)
-    labels = remove_giant(labels, max_size=max_obj)
-    labels[~tissue_mask(rgb)] = 0
+    img = img.astype(np.float32)
+    r    = win_size // 2                        # radius
+    x    = np.arange(-r, r + 1)
 
-    # 3. Regionprops por núcleo
-    props = measure.regionprops_table(
-                labels,
-                intensity_image=h,
-                properties=('area', 'eccentricity', 'solidity',
-                            'major_axis_length', 'minor_axis_length',
-                            'perimeter', 'mean_intensity', 'centroid')
-            )
-    df_cells = pd.DataFrame(props)
+    # --- 2. build 4 short DFT basis filters (as in Ojansivu & Heikkilä, 2008) -
+    w0   = np.exp(-2j * np.pi * x * freq / win_size)
+    W    = np.stack([np.real(w0), np.imag(w0)], axis=0)  # shape (2,win_size)
+    
+    # Vertical & horizontal separable filters
+    filters = [
+        np.outer(W[0], np.ones_like(x)),        # 1) Re{F(0,ω)}
+        np.outer(W[1], np.ones_like(x)),        # 2) Im{F(0,ω)}
+        np.outer(np.ones_like(x), W[0]),        # 3) Re{F(ω,0)}
+        np.outer(np.ones_like(x), W[1])         # 4) Im{F(ω,0)}
+    ]
 
-    if not summary:
-        return df_cells, None
+    # --- 3. filter responses per pixel ---------------------------------------
+    responses = [convolve2d(img, f, mode='same', boundary='symm') for f in filters]
+    responses = np.stack(responses, axis=-1)    # (H,W,4)
 
-    # 4. Slide-level summary vector -------------------------------------------
-    feat = {}
-    for col in df_cells.columns:
-        if col.startswith('centroid'):
-            continue
-        v = df_cells[col].values.astype(float)
-        feat[f'{col}_mean'] = v.mean()
-        feat[f'{col}_std']  = v.std(ddof=1)
-        feat[f'{col}_p10']  = np.percentile(v, 10)
-        feat[f'{col}_p90']  = np.percentile(v, 90)
+    # --- 4. decorrelate & binarise (sign bit for each channel) ---------------
+    # Simple whitening: subtract mean and divide by std per channel
+    resp   = (responses - responses.mean(axis=(0,1))) / (responses.std(axis=(0,1)) + 1e-8)
+    codes  = (resp > 0).astype(np.uint8)
+    
+    # Pack 4 binary planes into 8-bit code (2^4=16 possible values) → extend
+    code_img = (codes[...,0] << 3) | (codes[...,1] << 2) | \
+               (codes[...,2] << 1) |  codes[...,3]
 
-    # densidade de núcleos
-    tissue_px = tissue_mask(rgb).sum()
-    feat['nuclei_per_1kpx'] = len(df_cells) / (tissue_px / 1_000 + 1e-6)
+    # --- 5. histogram normalised --------------------------------------------
+    hist, _ = np.histogram(code_img, bins=256, range=(0,255), density=False)
+    hist    = hist.astype(np.float32)
+    hist   /= hist.sum() + 1e-12               # L1-normalise
 
-    # distância ao vizinho mais próximo
-    if len(df_cells) >= 2:
-        kd  = cKDTree(df_cells[['centroid-0', 'centroid-1']])
-        nn  = kd.query(df_cells[['centroid-0','centroid-1']], k=2)[0][:,1]
-        feat['nn_median'] = np.median(nn)
-    else:
-        feat['nn_median'] = np.nan
+    return hist                                # shape (256,)
 
-    return df_cells, feat
+# ────────────────────────────────────────────────────────────────
+# 2)  LBP  — Local Binary Pattern
+# ----------------------------------------------------------------
+def extract_lbp_features(
+        img,
+        radius: int = 6,
+        n_points: int = None,
+        n_bins:   int = None,
+        method:   str = "uniform") -> np.ndarray:
+    """
+    Extract an LBP histogram over the whole image.
 
+    Parameters
+    ----------
+    img : ndarray
+        Grayscale (H×W) or RGB (H×W×3).
+    radius : int
+        Pixel radius around the centre (1 → 8 neighbours).
+    n_points : int or None
+        Number of sampling points. Default = 8 * radius.
+    n_bins : int or None
+        Histogram length. If None, picks (n_points + 2) for 'uniform' and
+        2**n_points otherwise.
+    method : str
+        LBP variant: 'uniform', 'default', 'ror', 'var'.
 
-def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
+    Returns
+    -------
+    hist : ndarray
+        Normalised LBP histogram (length = n_bins).
+    """
+    if img.ndim == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = img.astype(np.uint8)
+
+    if n_points is None:
+        n_points = 8 * radius
+    lbp = local_binary_pattern(img, n_points, radius, method)
+
+    if n_bins is None:
+        n_bins = n_points + 2 if method == "uniform" else 2 ** n_points
+
+    hist, _ = np.histogram(lbp.ravel(), bins=n_bins, range=(0, n_bins-1))
+    hist = hist.astype(np.float32)
+    hist /= hist.sum() + 1e-12                 # L1 normalise
+    return hist
+
+def extract_wavelet_features(
+        img,
+        wavelet: str = "db4",
+        levels: int = 3,
+        stats: tuple = ("mean", "std", "energy", "entropy")
+    ) -> np.ndarray:
+    """
+    Extracts summary statistics from each sub-banda da DWT.
+
+    Parameters
+    ----------
+    img : ndarray
+        Grayscale image (H×W) ou RGB (H×W×3).  Se RGB, o cálculo
+        é feito canal-a-canal e depois concatenado.
+    wavelet : str
+        Nome do wavelet mãe (ex.: "db4", "sym4", "haar"...).
+    levels : int
+        Profundidade da decomposição. 2-3 já costuma bastar.
+    stats : tuple[str]
+        Quais estatísticas calcular em cada sub-banda.
+        Opções disponíveis: "mean", "std", "energy", "entropy",
+        "skew", "kurtosis".
+
+    Returns
+    -------
+    features : 1-D ndarray
+        Vetor (float64) com len(stats) × (1 + 3×levels) × n_channels
+        elementos.
+    """
+    # —— helpers ————————————————————————————————
+    def _band_stats(band):
+        band = band.astype(np.float64)
+        res   = []
+        if "mean"   in stats: res.append(np.mean(band))
+        if "std"    in stats: res.append(np.std(band))
+        if "energy" in stats: res.append(np.sum(band**2))
+        if "entropy" in stats:
+            p = np.abs(band).ravel()
+            p = p / (p.sum() + 1e-12)
+            res.append(-np.sum(p * np.log(p + 1e-12)))
+        if "skew"     in stats: res.append(skew(band.ravel()))
+        if "kurtosis" in stats: res.append(kurtosis(band.ravel()))
+        return res
+
+    # —— garante forma (H,W,C) ————————————————————
+    img = img.astype(np.float32)
+    if img.ndim == 2:          # grayscale → (H,W,1)
+        img = img[..., None]
+
+    feats = []
+    for c in range(img.shape[2]):
+        coeffs = pywt.wavedec2(img[..., c], wavelet=wavelet, level=levels)
+        # LL
+        feats.extend(_band_stats(coeffs[0]))
+        # detalhes LH, HL, HH em cada nível
+        for detail in coeffs[1:]:
+            for band in detail:
+                feats.extend(_band_stats(band))
+
+    return np.array(feats, dtype=np.float64)
+
+def extract_handcrafted_features(image_paths, radii=[1,2,4,8,16]):
     """
     For each image path:
       - load RGB
@@ -396,174 +317,30 @@ def extract_haralick_granulo(image_paths, radii=[1,2,4,8,16]):
         dab   = to_ubyte(hed[..., 2])  # DAB
 
            # --- Haralick on HEMI ---
-        # glcm_he = graycomatrix(hemi,
-        #                        distances=[1],
-        #                        angles=[0],
-        #                        levels=256,
-        #                        symmetric=True,
-        #                        normed=True)
-        # har_hemi = [graycoprops(glcm_he, prop)[0,0]
-                    # for prop in ("contrast","energy","homogeneity","correlation")]
+        glcm_he = graycomatrix(hemi,
+                                distances=[1,2,4],
+                                angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
+                               levels=256,
+                               symmetric=True,
+                               normed=True)
+        props = np.array([
+            graycoprops(glcm_he, p).mean()      # .mean() já média tudo
+            for p in ("contrast", "energy", "homogeneity", "correlation")
+        ], dtype=np.float32)
+        har_hemi = [graycoprops(glcm_he, prop)[0,0]
+                    for prop in ("contrast","energy","homogeneity","correlation")]
 
         # --- Haralick on EOSIN (optional) ---
         glcm_eo = graycomatrix(eosin, distances=[1], angles=[0], levels=256,
                                symmetric=True, normed=True)
-        har_eosin = [graycoprops(glcm_eo, p)[0,0]
+        har_eosin = [graycoprops(glcm_eo, p).mean() 
                      for p in ("contrast","energy","homogeneity","correlation")]
-
-        #--- Granulometry on HEMI ---
-        # gran_hemi  = compute_full_granulometry(hemi,  radii=radii)
-
-        # --- Granulometry on EOSIN  (optional) ---
-        #gran_eosin = compute_granulometry(eosin, radii=radii)
-
-        # --- Combine whichever you like ---
-        # feat = np.hstack([har_hemi, har_eosin])
-        # feat = np.hstack([har_hemi, har_eosin, gran_hemi, gran_eosin])
-
-
-        # For now, just placeholder—uncomment above to use real features:
         
-        # features.append(feat)
+        lpb = extract_lbp_features(hemi)
         
-        _, nuclei_vec = feature_extractor(img, min_obj=30, max_obj=7000, summary=True)
-        nuclei_vec = pd.Series(nuclei_vec).values    # dict → 1-D array
-        vec = np.hstack([nuclei_vec, har_eosin]).astype(np.float32)
+        w_vector = extract_wavelet_features(hemi, wavelet="db5", levels=3)
+
+        vec = np.hstack([w_vector]).astype(np.float32)
         features.append(vec)
 
     return np.vstack(features)
-
-def apply_pca(train_features, test_features, n_components):
-    print("Applying PCA")
-
-    # Remove zero-variance features (fit only on train, transform both)
-    selector = VarianceThreshold(threshold=0.0)
-    train_features = selector.fit_transform(train_features)
-    test_features = selector.transform(test_features)
-
-    print(f"Number of zero-variance features removed: {train_features.shape[1] - test_features.shape[1]}")
-
-    # Standardize features (fit only on train, transform both)
-    scaler = StandardScaler()
-    scale_train_features = scaler.fit_transform(train_features)
-    scale_test_features = scaler.transform(test_features)
-
-    print("Train mean:", np.mean(scale_train_features, axis=0)[:10])
-    print("Train std:", np.std(scale_train_features, axis=0)[:10])
-
-    # Apply PCA
-    pca = PCA(n_components=n_components, svd_solver='auto', random_state=42)
-    train_features_pca = pca.fit_transform(scale_train_features)
-    test_features_pca = pca.transform(scale_test_features)
-    
-    print("Components variance values")
-    print(pca.explained_variance_ratio_)
-
-    print("Cumulative variance")
-    cumulative_variance = np.cumsum(pca.explained_variance_ratio_)
-    print(cumulative_variance)
-
-    # Find the number of components needed to retain 90% of variance
-    n_components_90 = np.argmax(cumulative_variance >= 0.90) + 1
-    print(f"Number of components for 90% variance: {n_components_90}")
-
-    return train_features_pca, test_features_pca, pca, scaler
-
-def residual_block(x, filters, stride=1):
-    # Save the original input for the residual connection
-    shortcut = x
-
-    # First convolution layer
-    x = layers.Conv2D(filters, kernel_size=3, strides=stride, padding='same')(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-
-    # Second convolution layer
-    x = layers.Conv2D(filters, kernel_size=3, strides=1, padding='same')(x)
-    x = layers.BatchNormalization()(x)
-
-    # Match the dimensions of the shortcut if needed
-    if stride != 1 or x.shape[-1] != shortcut.shape[-1]:
-        shortcut = layers.Conv2D(filters, kernel_size=1, strides=stride, padding='same')(shortcut)
-        shortcut = layers.BatchNormalization()(shortcut)
-
-    # Add the shortcut to the output (residual connection)
-    x = layers.add([x, shortcut])
-    x = layers.ReLU()(x)
-
-    return x
-
-
-def ResNet18(input_shape=(224, 224, 3), weights="", include_top=False, pooling='avg'):
-    inputs = layers.Input(shape=input_shape)
-    
-    # Initial Convolution and MaxPooling
-    x = layers.Conv2D(64, kernel_size=7, strides=2, padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-    x = layers.MaxPooling2D(pool_size=3, strides=2, padding='same')(x)
-
-    # Stage 1: 2 residual blocks with 64 filters
-    x = residual_block(x, 64)
-    x = residual_block(x, 64)
-
-    # Stage 2: 2 residual blocks with 128 filters
-    x = residual_block(x, 128, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 128)
-
-    # Stage 3: 2 residual blocks with 256 filters
-    x = residual_block(x, 256, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 256)
-
-    # Stage 4: 2 residual blocks with 512 filters
-    x = residual_block(x, 512, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 512)
-
-    # Global Average Pooling (this will be the feature vector)
-    x = layers.GlobalAveragePooling2D()(x)
-
-    # The model will output the feature vector (without the classification layer)
-    model = models.Model(inputs, x)
-
-    return model
-
-def ResNet30(input_shape=(224, 224, 3), weights="", include_top=False, pooling='avg'):
-    inputs = layers.Input(shape=input_shape)
-    
-    # Initial Convolution and MaxPooling
-    x = layers.Conv2D(64, kernel_size=7, strides=2, padding='same')(inputs)
-    x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-    x = layers.MaxPooling2D(pool_size=3, strides=2, padding='same')(x)
-
-    # Stage 1: 3 residual blocks with 64 filters
-    x = residual_block(x, 64)
-    x = residual_block(x, 64)
-    x = residual_block(x, 64)
-
-    # Stage 2: 4 residual blocks with 128 filters
-    x = residual_block(x, 128, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 128)
-    x = residual_block(x, 128)
-    x = residual_block(x, 128)
-
-    # Stage 3: 6 residual blocks with 256 filters
-    x = residual_block(x, 256, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 256)
-    x = residual_block(x, 256)
-    x = residual_block(x, 256)
-    x = residual_block(x, 256)
-    x = residual_block(x, 256)
-
-    # Stage 4: 3 residual blocks with 512 filters
-    x = residual_block(x, 512, stride=2)  # Stride 2 for downsampling
-    x = residual_block(x, 512)
-    x = residual_block(x, 512)
-
-    # Global Average Pooling (this will be the feature vector)
-    x = layers.GlobalAveragePooling2D()(x)
-
-    # The model will output the feature vector (without the classification layer)
-    model = models.Model(inputs, x)
-
-    return model
