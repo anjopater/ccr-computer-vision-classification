@@ -243,11 +243,10 @@ def main():
             }
             
             # Stacking
-            # 1) Defina seus classificadores base (já ajustados ou novos)
             lr      = best_pipelines['Logistic Regression']
             nb      = best_pipelines['GaussianNB']
 
-            # 2) Monte a lista fixa de estimators
+            # 2) estimator fixed list
             estimators = [
                 ('svm', svm_cal),
                 ('lr',  lr),
@@ -255,16 +254,16 @@ def main():
                 ('nb',  nb)
             ]
 
-            # 3) Defina o meta‐classificador
+            # 3) Defining Meta classifier
             meta_clf = GradientBoostingClassifier(random_state=42)
 
-            # 4) Crie o StackingClassifier
+            # 4) Creating the meta classifer
             stack = StackingClassifier(
                 estimators=estimators,
                 final_estimator=meta_clf,
-                cv=4,                    # 4 folds internos para gerar features do meta
+                cv=4,                   
                 n_jobs=-1,
-                passthrough=False        # passa somente as previsões de probabilidade ao meta
+                passthrough=False        # pass only the probabilities
             )
 
             # 5) Treine e avalie
@@ -272,9 +271,7 @@ def main():
             y_pred = stack.predict(X_test)
             acc    = accuracy_score(test_lbl, y_pred)
             print(f"Stacking accuracy: {acc:.4f}")
-            
-            # ───────── STACKING FIXO ────────────────────────────────────────────────
-            
+                        
             # Save confusion matrix for soft voting
             out_dir = os.path.join("results", model_name)
             os.makedirs(out_dir, exist_ok=True)
@@ -284,8 +281,6 @@ def main():
                 filename="confmat_softvoting.png",
                 output_dir=out_dir
             )
-
-            # print(f"*** Stacking acc ({model_name}): {stack_acc:.4f}")
 
             results[model_name]['Stacking'] = {
                 "base_learners": 'svm,rf,lr,nb',

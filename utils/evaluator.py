@@ -8,7 +8,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 import xgboost as xgb
 import numpy as np
-from utils.save_plots import plot_and_save_confusion_matrix, plot_cv_indices
 from sklearn.naive_bayes import GaussianNB
 import os
 

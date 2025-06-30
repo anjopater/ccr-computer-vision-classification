@@ -74,12 +74,12 @@ def _collect_paths_and_groups(
         exclude_word: str | None = None      # ← NOVO (ex.: "mask", "thumb")
     ):
     """
-    Percorre todas as subpastas de *base* e devolve duas listas paralelas:
-    • paths  – caminhos das imagens cujo sufixo está em EXTS
-    • groups – rótulos de grupo (prefix + animal_id)
+    Iterates through all subfolders of base and returns two parallel lists:
 
-    Se *exclude_word* for passado, qualquer arquivo cujo nome contenha essa
-    palavra (case-insensitive) será ignorado.
+    • paths – paths of images whose suffix is in EXTS
+    • groups – group labels (prefix + animal_id)
+
+    If exclude_word is provided, any file containing this word in its name (case-insensitive) will be ignored.
     """
     paths, groups = [], []
 
@@ -115,6 +115,7 @@ def load_data():
 
     max_tiles = max((*ctl_counts.values(), *crc_counts.values()))
 
+    # Uncomment if is the first time running this script 
     # 2) augment up to max_tiles
     # for a, n in ctl_counts.items():
     #     if n < max_tiles:
@@ -171,21 +172,17 @@ def load_data():
     return (train_paths,  train_labels, train_groups,
             test_paths,   test_labels,  test_groups)
     
-    
-# ---------------------------------------------------------
-# Função auxiliar: carrega se existir, senão extrai e salva
-# ---------------------------------------------------------
 def load_or_extract(imgs, cache_file, extractor_func):
     """
-    imgs          : lista/array de imagens
-    cache_file    : caminho do arquivo .joblib
-    extractor_func: função que extrai as features
+    imgs          : lista/array of images
+    cache_file    : path of the file .joblib
+    extractor_func: extract features function
     """
     if os.path.exists(cache_file):
-        print("✓ Lendo cache:", cache_file)
+        print("✓ reading cache:", cache_file)
         return joblib.load(cache_file)        # devolve ndarray
     else:
-        print("… Gerando e salvando:", cache_file)
+        print("… Creating and saving:", cache_file)
         feats = extractor_func(imgs)          # extrai features
         joblib.dump(feats, cache_file)        # salva no disco
         return feats
