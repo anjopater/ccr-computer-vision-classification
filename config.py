@@ -12,11 +12,11 @@ PCA_COMPONENTS = [80, 60]
 # Models to Test
 MODELS = {
    #"Inceptionv3": "inceptionv3",
-   #"ResNet50": "resnet50",
-   #"DenseNet121": "densenet121",
+   "ResNet50": "resnet50",
+   "DenseNet121": "densenet121",
    #"EfficientNetB0": "efficientNetB0",
    #"ConvNeXtTiny": "convNeXtTiny"
-   "handcrafted": "handcrafted"   # ← new key
+   #"handcrafted": "handcrafted"   # ← new key
 }
 
 IMAGES_SIZE_MODELS = {

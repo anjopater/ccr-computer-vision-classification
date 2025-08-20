@@ -132,6 +132,33 @@ def main():
             )
             grid.fit(X_train, train_lbl, groups=train_grp)
             
+            # --------------------- NEW CODE BLOCK ---------------------
+            # Extract and print the scores for each fold for the best model
+            print(f"--- Scores per fold for best {clf_name} ---")
+            
+            # Find the index of the best performing parameter set
+            best_model_index = grid.best_index_
+            
+            # Create a list to store the scores
+            fold_scores = []
+            
+            # Loop through each fold (split) and get the score
+            for i in range(cv_inner.get_n_splits()):
+                fold_score_key = f"split{i}_test_score"
+                # Get the score of the best model on this specific fold
+                score = grid.cv_results_[fold_score_key][best_model_index]
+                fold_scores.append(score)
+                print(f"  Fold {i+1}: {score:.4f}")
+            
+            # Now you have the list of scores for the Wilcoxon test
+            print(f"List of scores for {clf_name}: {np.round(fold_scores, 4)}")
+            
+            # You can also add this list to your results dictionary
+            if 'fold_scores' not in results[model_name]:
+                results[model_name]['fold_scores'] = {}
+            results[model_name]['fold_scores'][clf_name] = fold_scores
+            # ------------------- END NEW CODE BLOCK -------------------
+            
             # choose an output folder
             heatmap_dir = os.path.join("results", model_name, clf_name, "cv_folds")
             os.makedirs(heatmap_dir, exist_ok=True)
@@ -207,87 +234,87 @@ def main():
         
         print("Models collected:", list(best_pipelines.keys()))
 
-        # 2d) Ensembles (only if we have any base learners)
-        if not best_pipelines:
-            print(f"No base learners for {model_name}, skipping ensembles.")
-        else:
-            chosen  = ['SVM', 'Logistic Regression', 'Random Forest', 'GaussianNB']
-            weights = [12, 10, 8, 6, 4]
+        # # 2d) Ensembles (only if we have any base learners)
+        # if not best_pipelines:
+        #     print(f"No base learners for {model_name}, skipping ensembles.")
+        # else:
+        #     chosen  = ['SVM', 'Logistic Regression', 'Random Forest', 'GaussianNB']
+        #     weights = [12, 10, 8, 6, 4]
 
-            # ---- Calibrators (SVM precisa; RF opcional) ----
-            svm_cal = CalibratedClassifierCV(best_pipelines['SVM'],  cv=3, method='sigmoid')
-            rf_cal  = CalibratedClassifierCV(best_pipelines['Random Forest'], cv=3, method='sigmoid')
+        #     # ---- Calibrators (SVM precisa; RF opcional) ----
+        #     svm_cal = CalibratedClassifierCV(best_pipelines['SVM'],  cv=3, method='sigmoid')
+        #     rf_cal  = CalibratedClassifierCV(best_pipelines['Random Forest'], cv=3, method='sigmoid')
 
-            estimators = [
-                ('svm', svm_cal),
-                ('lr',  best_pipelines['Logistic Regression']),
-                ('rf',  rf_cal),
-                ('mlp2',best_pipelines['MLP2']),
-                ('nb',  best_pipelines['GaussianNB'])
-            ]
+        #     estimators = [
+        #         ('svm', svm_cal),
+        #         ('lr',  best_pipelines['Logistic Regression']),
+        #         ('rf',  rf_cal),
+        #         ('mlp2',best_pipelines['MLP2']),
+        #         ('nb',  best_pipelines['GaussianNB'])
+        #     ]
 
-            soft_vote = VotingClassifier(
-                estimators=estimators,
-                voting='soft',
-                weights=weights,
-                n_jobs=-1
-            )
-            soft_vote.fit(X_train, train_lbl)
-            y_soft = soft_vote.predict(X_test)
+        #     soft_vote = VotingClassifier(
+        #         estimators=estimators,
+        #         voting='soft',
+        #         weights=weights,
+        #         n_jobs=-1
+        #     )
+        #     soft_vote.fit(X_train, train_lbl)
+        #     y_soft = soft_vote.predict(X_test)
 
-            results[model_name]['SoftVoting'] = {
-                "members"      : chosen,
-                "weights"      : dict(zip(chosen, weights)),
-                "test_accuracy": f"{accuracy_score(test_lbl, y_soft):.4f}",
-                "report"       : classification_report(test_lbl, y_soft, output_dict=True)
-            }
+        #     results[model_name]['SoftVoting'] = {
+        #         "members"      : chosen,
+        #         "weights"      : dict(zip(chosen, weights)),
+        #         "test_accuracy": f"{accuracy_score(test_lbl, y_soft):.4f}",
+        #         "report"       : classification_report(test_lbl, y_soft, output_dict=True)
+        #     }
             
-            # Stacking
-            lr      = best_pipelines['Logistic Regression']
-            nb      = best_pipelines['GaussianNB']
+        #     # Stacking
+        #     lr      = best_pipelines['Logistic Regression']
+        #     nb      = best_pipelines['GaussianNB']
 
-            # 2) estimator fixed list
-            estimators = [
-                ('svm', svm_cal),
-                ('lr',  lr),
-                ('rf',  rf_cal),
-                ('nb',  nb)
-            ]
+        #     # 2) estimator fixed list
+        #     estimators = [
+        #         ('svm', svm_cal),
+        #         ('lr',  lr),
+        #         ('rf',  rf_cal),
+        #         ('nb',  nb)
+        #     ]
 
-            # 3) Defining Meta classifier
-            meta_clf = GradientBoostingClassifier(random_state=42)
+        #     # 3) Defining Meta classifier
+        #     meta_clf = GradientBoostingClassifier(random_state=42)
 
-            # 4) Creating the meta classifer
-            stack = StackingClassifier(
-                estimators=estimators,
-                final_estimator=meta_clf,
-                cv=4,                   
-                n_jobs=-1,
-                passthrough=False        # pass only the probabilities
-            )
+        #     # 4) Creating the meta classifer
+        #     stack = StackingClassifier(
+        #         estimators=estimators,
+        #         final_estimator=meta_clf,
+        #         cv=4,                   
+        #         n_jobs=-1,
+        #         passthrough=False        # pass only the probabilities
+        #     )
 
-            # 5) Treine e avalie
-            stack.fit(X_train, train_lbl)
-            y_pred = stack.predict(X_test)
-            acc    = accuracy_score(test_lbl, y_pred)
-            print(f"Stacking accuracy: {acc:.4f}")
+        #     # 5) Treine e avalie
+        #     stack.fit(X_train, train_lbl)
+        #     y_pred = stack.predict(X_test)
+        #     acc    = accuracy_score(test_lbl, y_pred)
+        #     print(f"Stacking accuracy: {acc:.4f}")
                         
-            # Save confusion matrix for soft voting
-            out_dir = os.path.join("results", model_name)
-            os.makedirs(out_dir, exist_ok=True)
-            plot_and_save_confusion_matrix(
-                test_lbl, y_soft,
-                title=f"Confusion Matrix – {clf_name}",
-                filename="confmat_softvoting.png",
-                output_dir=out_dir
-            )
+        #     # Save confusion matrix for soft voting
+        #     out_dir = os.path.join("results", model_name)
+        #     os.makedirs(out_dir, exist_ok=True)
+        #     plot_and_save_confusion_matrix(
+        #         test_lbl, y_soft,
+        #         title=f"Confusion Matrix – {clf_name}",
+        #         filename="confmat_softvoting.png",
+        #         output_dir=out_dir
+        #     )
 
-            results[model_name]['Stacking'] = {
-                "base_learners": 'svm,rf,lr,nb',
-                "meta": "LogisticRegression",
-                "test_accuracy": f"{accuracy_score(test_lbl, y_pred):.4f}",
-                "report": classification_report(test_lbl, y_pred, output_dict=True)
-            }
+        #     results[model_name]['Stacking'] = {
+        #         "base_learners": 'svm,rf,lr,nb',
+        #         "meta": "LogisticRegression",
+        #         "test_accuracy": f"{accuracy_score(test_lbl, y_pred):.4f}",
+        #         "report": classification_report(test_lbl, y_pred, output_dict=True)
+        #     }
             
 
     # 3) Persist all results
