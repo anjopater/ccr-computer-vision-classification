@@ -232,7 +232,7 @@ def extract_wavelet_features(
         img,
         wavelet: str = "db4",
         levels: int = 3,
-        stats: tuple = ("mean", "std", "energy", "entropy")
+        stats: tuple = ("mean", "std", "energy", "entropy", "skew", "kurtosis")
     ) -> np.ndarray:
     """
     Extracts summary statistics from each sub-banda da DWT.
@@ -257,19 +257,32 @@ def extract_wavelet_features(
         Vetor (float64) com len(stats) × (1 + 3×levels) × n_channels
         elementos.
     """
+    
     # —— helpers ————————————————————————————————
     def _band_stats(band):
         band = band.astype(np.float64)
-        res   = []
-        if "mean"   in stats: res.append(np.mean(band))
-        if "std"    in stats: res.append(np.std(band))
-        if "energy" in stats: res.append(np.sum(band**2))
+        r = band.ravel()
+        res = []
+        if "mean" in stats: res.append(np.mean(r))
+        if "std" in stats:  res.append(np.std(r))
+        if "energy" in stats:
+            # Use log1p, que calcula log(1 + x) para estabilidade numérica
+            energy_val = np.sum(r**2)
+            res.append(np.log1p(energy_val))
         if "entropy" in stats:
-            p = np.abs(band).ravel()
+            p = np.abs(r)
             p = p / (p.sum() + 1e-12)
             res.append(-np.sum(p * np.log(p + 1e-12)))
-        if "skew"     in stats: res.append(skew(band.ravel()))
-        if "kurtosis" in stats: res.append(kurtosis(band.ravel()))
+        if "skew" in stats:
+            if np.std(r) == 0 or np.isnan(r).any():
+                res.append(0.0)
+            else:
+                res.append(skew(r))
+        if "kurtosis" in stats:
+            if np.std(r) == 0 or np.isnan(r).any():
+                res.append(0.0)
+            else:
+                res.append(kurtosis(r))
         return res
 
     # —— garante forma (H,W,C) ————————————————————
@@ -286,10 +299,12 @@ def extract_wavelet_features(
         for detail in coeffs[1:]:
             for band in detail:
                 feats.extend(_band_stats(band))
+                
+    # feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
 
     return np.array(feats, dtype=np.float64)
 
-def extract_handcrafted_features(image_paths, radii=[1,2,4,8,16]):
+def extract_handcrafted_features(image_paths, radii=[1,2,4,8,16],  target_size=(224, 224)):
     """
     For each image path:
       - load RGB
@@ -308,7 +323,16 @@ def extract_handcrafted_features(image_paths, radii=[1,2,4,8,16]):
         return img_as_ubyte(c)
 
     for path in image_paths:
-        img = np.array(Image.open(path).convert("RGB"))
+        #img = np.array(Image.open(path).convert("RGB"))
+        img = Image.open(path).convert("RGB")
+
+        print(path)
+        # # --- CHANGE 2: Add the resizing step here ---
+        # if target_size:
+        #     img = img.resize(target_size, Image.Resampling.LANCZOS)
+        
+        img = np.array(img)
+        
         hed = rgb2hed(img)
 
         # normalize each HED channel
@@ -336,11 +360,13 @@ def extract_handcrafted_features(image_paths, radii=[1,2,4,8,16]):
         har_eosin = [graycoprops(glcm_eo, p).mean() 
                      for p in ("contrast","energy","homogeneity","correlation")]
         
-        lpb = extract_lbp_features(hemi)
+        # lpb = extract_lbp_features(hemi)
         
         w_vector = extract_wavelet_features(hemi, wavelet="db5", levels=3)
 
         vec = np.hstack([w_vector]).astype(np.float32)
+        # vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
+
         features.append(vec)
 
     return np.vstack(features)

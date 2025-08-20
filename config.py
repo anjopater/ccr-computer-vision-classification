@@ -3,20 +3,23 @@
 import os
 
 BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/HE_DATASET_LIVER"
+#BASE_PATH = "/Users/antonio/Documents/HE_DATASET_LIVER"
+#BASE_PATH = "/Users/antonio/Documents/projects/jupiterenv/datasets/FOTOS_HE_FIGADO_ORIGINAL_ORGANIZED"
+
 C_PATH = os.path.join(BASE_PATH, "Controle")  # Control
 CCR_PATH = os.path.join(BASE_PATH, "CRC")  # Cancer
 
 # PCA Components to Test
-PCA_COMPONENTS = [80, 60]
+PCA_COMPONENTS = [50, 80]
 
 # Models to Test
 MODELS = {
    #"Inceptionv3": "inceptionv3",
-   #"ResNet50": "resnet50",
-   #"DenseNet121": "densenet121",
+   "ResNet50": "resnet50",
+   "DenseNet121": "densenet121",
    #"EfficientNetB0": "efficientNetB0",
    #"ConvNeXtTiny": "convNeXtTiny"
-   "handcrafted": "handcrafted"   # ← new key
+   #"handcrafted": "handcrafted"   # ← new key
 }
 
 IMAGES_SIZE_MODELS = {
