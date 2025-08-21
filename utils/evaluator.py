@@ -25,8 +25,8 @@ def get_classifiers(random_state=42):
             'model': SVC(probability=True, random_state=random_state),
             'params': {
                 'C': [0.1, 1, 10],
-                'kernel': ['linear', 'rbf', "sigmoid", "poly"],
-                'gamma': ['scale', 'auto']
+                'kernel': ['linear', 'rbf'],
+                'gamma': ['scale'],
             }
         },
         'Random Forest': {

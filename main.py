@@ -16,6 +16,9 @@ from sklearn.metrics  import accuracy_score, classification_report
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_val_score
+
 
 from config                  import PCA_COMPONENTS, MODELS, RESULTS_FILE
 from utils.data_loader       import load_data, load_or_extract
@@ -29,6 +32,7 @@ from umap import UMAP
 import json
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import VarianceThreshold
+from sklearn.linear_model import LogisticRegression
 
 
 from sklearn.cluster import KMeans
@@ -384,6 +388,34 @@ def main():
             )
             grid.fit(X_train_orig, train_lbl, groups=train_grp)
             
+            # # --------------------- NEW CODE BLOCK ---------------------
+            # # Extract and print the scores for each fold for the best model
+            # print(f"--- Scores per fold for best {clf_name} ---")
+            
+            # # Find the index of the best performing parameter set
+            # best_model_index = grid.best_index_
+            
+            # # Create a list to store the scores
+            # fold_scores = []
+            
+            # # Loop through each fold (split) and get the score
+            # for i in range(cv_inner.get_n_splits()):
+            #     fold_score_key = f"split{i}_test_score"
+            #     # Get the score of the best model on this specific fold
+            #     score = grid.cv_results_[fold_score_key][best_model_index]
+            #     fold_scores.append(score)
+            #     print(f"  Fold {i+1}: {score:.4f}")
+            
+            # # Now you have the list of scores for the Wilcoxon test
+            # print(f"List of scores for {clf_name}: {np.round(fold_scores, 4)}")
+            
+            # # You can also add this list to your results dictionary
+            # if 'fold_scores' not in results[model_name]:
+            #     results[model_name]['fold_scores'] = {}
+            # results[model_name]['fold_scores'][clf_name] = fold_scores
+            # ------------------- END NEW CODE BLOCK -------------------
+            
+            
             # choose an output folder
             heatmap_dir = os.path.join("results", model_name, clf_name, "cv_folds")
             os.makedirs(heatmap_dir, exist_ok=True)
@@ -419,7 +451,7 @@ def main():
                 "test_accuracy"        : f"{acc:.4f}",
                 "best_params"          : clean_params(grid.best_params_),
                 "classification_report": classification_report(
-                                              test_lbl, y_pred, output_dict=True),
+                 test_lbl, y_pred, output_dict=True),
             }
             
             # plot data distributions
@@ -467,7 +499,7 @@ def main():
         if not best_pipelines:
             print(f"No base learners for {model_name}, skipping ensembles.")
         else:
-            chosen  = [ 'Logistic Regression', 'SVM',  'Random Forest', 'MLP2', 'MLP', 'GaussianNB']
+            chosen  = ['Logistic Regression', 'SVM',  'Random Forest', 'MLP2', 'MLP', 'GaussianNB']
             weights = [12, 10, 8, 6, 4]
 
             # ---- Calibrators (SVM precisa; RF opcional) ----
@@ -475,11 +507,14 @@ def main():
             rf_cal  = CalibratedClassifierCV(best_pipelines['Random Forest'], cv=3, method='sigmoid')
 
             estimators = [
-                 ('lr',  best_pipelines['Logistic Regression']),
-                 ('mlp2',best_pipelines['MLP2']),
-                 ('svm', svm_cal),
-                ('rf',  rf_cal),
-                ('nb',  best_pipelines['GaussianNB'])
+                ('MLP',best_pipelines['MLP']),
+                ('SVM', svm_cal),
+                ('MLP2',best_pipelines['MLP2']),
+
+                ('Logistic Regression',  best_pipelines['Logistic Regression']),
+                ('GaussianNB',  best_pipelines['GaussianNB']),
+                #('rf',  rf_cal),
+
             ]
 
             soft_vote = VotingClassifier(
@@ -488,6 +523,37 @@ def main():
                 weights=weights,
                 n_jobs=-1
             )
+            
+                        # --- NEW: Get Cross-Validation Scores for Soft Voting Ensemble ---
+            print("\n--- Calculating cross-validation scores for Soft Voting ensemble ---")
+            
+            # 1. Define the cross-validation strategy (the same one used in GridSearchCV)
+            # This ensures the comparison is fair
+            cv_strategy = StratifiedGroupKFold(n_splits=4, shuffle=True, random_state=42)
+            
+            # 2. Use cross_val_score to get the score for each fold
+            # This function will train and evaluate the soft_vote model 4 times, once for each fold.
+            # from sklearn.model_selection import cross_val_score
+            
+            fold_scores = cross_val_score(
+                estimator=soft_vote,
+                X=X_train_orig,
+                y=train_lbl,
+                groups=train_grp,
+                cv=cv_strategy,
+                scoring='balanced_accuracy', # Use the same scoring as your GridSearchCV
+                n_jobs=-1
+            )
+            
+            # 3. Print and store the results
+            print(f"Soft Voting scores per fold: {np.round(fold_scores, 4)}")
+            print(f"Mean CV Balanced Accuracy: {np.mean(fold_scores):.4f}")
+            
+            # Add these scores to your results dictionary for later use in the Wilcoxon test
+            # results[model_name]['SoftVoting']['fold_scores'] = 
+            # --------------------- END OF NEW BLOCK ---------------------
+            
+            
             soft_vote.fit(X_train_orig, train_lbl)
             y_soft = soft_vote.predict(X_test_orig)
 
@@ -495,23 +561,31 @@ def main():
                 "members"      : chosen,
                 "weights"      : dict(zip(chosen, weights)),
                 "test_accuracy": f"{accuracy_score(test_lbl, y_soft):.4f}",
-                "report"       : classification_report(test_lbl, y_soft, output_dict=True)
+                "report"       : classification_report(test_lbl, y_soft, output_dict=True),
+                'fold_scores' : fold_scores.tolist()
             }
             
             # Stacking
             lr      = best_pipelines['Logistic Regression']
             nb      = best_pipelines['GaussianNB']
+            MLP     = best_pipelines['MLP']
+            MLP2     = best_pipelines['MLP2']
+
 
             # 2) estimator fixed list
             estimators = [
-                ('lr',  lr),
-                ('svm', svm_cal),
-                ('rf',  rf_cal),
-                ('nb',  nb)
+                 ('mlp', MLP),
+                 ('svm', svm_cal),
+                 ('lr',  lr),
+                 
+                 #('rf',  rf_cal),
+                 #('nb',  nb)
             ]
 
             # 3) Defining Meta classifier
             meta_clf = GradientBoostingClassifier(random_state=42)
+            # meta_clf = LogisticRegression(random_state=42, max_iter=1000, solver='saga')
+            #meta_clf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
 
             # 4) Creating the meta classifer
             stack = StackingClassifier(
@@ -538,18 +612,18 @@ def main():
                 output_dir=out_dir
             )
             
-            # Save confusion matrix for soft voting
-            out_dir = os.path.join("results", model_name)
-            os.makedirs(out_dir, exist_ok=True)
-            plot_and_save_confusion_matrix(
-                test_lbl, y_soft,
-                title=f"Confusion Matrix – Soft Voting",
-                filename="confmat_softvoting.png.png",
-                output_dir=out_dir
-            )
+            # # Save confusion matrix for soft voting
+            # out_dir = os.path.join("results", model_name)
+            # os.makedirs(out_dir, exist_ok=True)
+            # plot_and_save_confusion_matrix(
+            #     test_lbl, y_soft,
+            #     title=f"Confusion Matrix – Soft Voting",
+            #     filename="confmat_softvoting.png.png",
+            #     output_dir=out_dir
+            # )
 
             results[model_name]['Stacking'] = {
-                "base_learners": 'lr,svm,rf,nb',
+                "base_learners": 'mlp,svm,lr,rf,nb',
                 # "base_learners": 'rf,lr,nb',
 
                 "meta": "GradientBoostingClassifier",

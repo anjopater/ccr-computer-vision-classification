@@ -232,7 +232,7 @@ def extract_wavelet_features(
         img,
         wavelet: str = "db4",
         levels: int = 3,
-        stats: tuple = ("mean", "std", "energy", "entropy", "skew", "kurtosis")
+        stats: tuple = ("mean", "std", "energy", "entropy")
     ) -> np.ndarray:
     """
     Extracts summary statistics from each sub-banda da DWT.
