@@ -127,37 +127,35 @@ def main():
             
             grid = GridSearchCV(
                 pipe, param_grid,
-                cv=cv_inner, scoring='balanced_accuracy',
+                cv=cv_inner, scoring='f1',
                 n_jobs=-1, refit=True
             )
             grid.fit(X_train, train_lbl, groups=train_grp)
             
-            # --------------------- NEW CODE BLOCK ---------------------
-            # Extract and print the scores for each fold for the best model
             print(f"--- Scores per fold for best {clf_name} ---")
-            
-            # Find the index of the best performing parameter set
             best_model_index = grid.best_index_
-            
-            # Create a list to store the scores
             fold_scores = []
-            
-            # Loop through each fold (split) and get the score
             for i in range(cv_inner.get_n_splits()):
                 fold_score_key = f"split{i}_test_score"
-                # Get the score of the best model on this specific fold
                 score = grid.cv_results_[fold_score_key][best_model_index]
                 fold_scores.append(score)
                 print(f"  Fold {i+1}: {score:.4f}")
             
-            # Now you have the list of scores for the Wilcoxon test
-            print(f"List of scores for {clf_name}: {np.round(fold_scores, 4)}")
-            
-            # You can also add this list to your results dictionary
-            if 'fold_scores' not in results[model_name]:
-                results[model_name]['fold_scores'] = {}
-            results[model_name]['fold_scores'][clf_name] = fold_scores
-            # ------------------- END NEW CODE BLOCK -------------------
+            print(f"List of scores for {clf_name}: {np.round(fold_scores, 4).tolist()}")
+
+            # # 2. Perform hold-out evaluation on the final test set
+            # best_model = grid.best_estimator_
+            # y_pred = best_model.predict(X_test)
+            # y_score = best_model.predict_proba(X_test)[:, 1]
+            # score_dict[clf_name] = y_score
+            # acc = accuracy_score(test_lbl, y_pred)
+            # best_pipelines[clf_name] = best_model
+
+            # # 3. Save ALL results for this classifier in ONE place
+            # results[model_name][clf_name] = {
+                
+            #     "fold_scores": np.round(fold_scores, 4).tolist() # <-- ADDED a key for fold_scores
+            # }
             
             # choose an output folder
             heatmap_dir = os.path.join("results", model_name, clf_name, "cv_folds")
@@ -195,6 +193,7 @@ def main():
                 "best_params"          : clean_params(grid.best_params_),
                 "classification_report": classification_report(
                                               test_lbl, y_pred, output_dict=True),
+                "fold_scores": np.round(fold_scores, 4).tolist()
             }
             
             # plot data distributions
